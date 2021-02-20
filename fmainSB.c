@@ -13,9 +13,20 @@
 
 #pragma config WDTE = OFF, PWRTE = OFF, BOREN = OFF, MCLRE = ON, FCMEN = OFF, LVP = OFF, FOSC = INTOSC, STVREN = OFF
 
+//макрос остановки
+#define MPauseStop \
+    TMR2IE = 0;\
+    TMR2 = 0;\
+    nWait = 2;\
+    TMR2IE = 1;\
+    while (nWait);\
+    IN1 = 0;\
+    IN2 = 0;
+
 //прототипы функций
 void Initial(void);
 byte checkSum(byte *p, byte size);
+byte moveMotor();
 //------------------------------------------------------------------
 //расчет контрольной суммм 
 byte checkSum(byte *p, byte size){
@@ -24,6 +35,79 @@ byte checkSum(byte *p, byte size){
         sum += *p++;
     }        
     return sum;
+}
+//------------------------------------------------------------------
+byte moveMotor()
+{
+    byte Error = 0;
+//крутим двигатель
+    nHalfTurn = 0;
+    swMove = ON; //включаем драйвер и оптческий датчик
+    ADIE = 0; //
+    IN1 = flag.b.direct ^ flag.b.inverMov;
+    IN2 = !flag.b.direct ^ flag.b.inverMov;
+    flag.b.motorMove = 1; //статус мотор запущен
+    stat = stDevTurn; //статус прямой ход
+    numHighCurrent = 0;
+    nWait = 15;
+    IOCAF5 = 0;
+    IOCIF = 0;
+    IOCIE = 1;
+
+    while (1) {              
+        if (!flag.b.motorMove) {
+            
+            if (stat == stRevers) {//остановка при обратном ходе
+                if (flag.b.currBig) {//с превышением тока
+                    Error = errRevers; //застрял при возврате
+                } else {
+                    IN1 = flag.b.direct ^ flag.b.inverMov; //тормозим реверс обратным направлением
+                    IN2 = !flag.b.direct ^ flag.b.inverMov;
+                    MPauseStop;
+                }
+                break;
+            }
+            
+            if (stat == stDevTurn) {
+                //остановка при превышении пройдет, когда превышение будет зафиксировано долго
+                if (flag.b.currBig) {//с превышением тока
+                    if (flag.b.reperPos) {//позиция на репере
+                        if (nHalfTurn < Turn) {//недостаточное количество полуоборотов
+                            Error = errHalf1; //застрял на репере, не выполнив нужное количество полуоборотов    
+
+                        } else {//достаточное количество полуоборотов
+                            Error = errHalf2; //застрял на репере, выполнено нужное количество полуоборотов                              
+                        }
+                        break;
+                    } else {//позиция НЕ на репере                               
+                        if (nHalfTurn < Turn){//недостаточное количество полуоборотов
+                            Error = errHalf3; //застрял НЕ на репере, не выполнено нужное количество полуоборотов                                      
+LED_RIGHT ^= 1;
+                            
+                            break;//выходим из цикла
+                        }
+                        //меняем направление вращения мотора;
+                        IN1 = !flag.b.direct ^ flag.b.inverMov;
+                        IN2 = flag.b.direct ^ flag.b.inverMov;
+                        flag.b.motorMove = 1; //запускаем мотор; 
+                        nHalfTurn = 0;
+                        nWait = 5;
+                        stat = stRevers;
+                    }
+                    flag.b.currBig = 0;
+                } else {//превышения по току нет, сработал оптический датчик
+                //тормозим
+                    IN1 = !flag.b.direct ^ flag.b.inverMov;
+                    IN2 = flag.b.direct ^ flag.b.inverMov;
+                    MPauseStop;
+                    break;
+                }
+            }
+        }
+    }
+    swMove = OFF; //вЫключаем драйвер и оптческий датчик
+    IOCIE = 0;
+    return Error;
 }
 //------------------------------------------------------------------
 //функция инициализации
@@ -167,15 +251,19 @@ __interrupt(high_priority) void Inter(void) {
     if (ADIE && ADIF) {//опрос АЦП
         wValADC.b[1] = ADRESH;
         wValADC.b[0] = ADRESL;
-        if (wValADC.num > CONSTPOROG) {//держим в крайнем положении в течении заданного интервала
-            flag.b.currBig = 1;
-            numBig++;
+        if (wValADC.num > CONSTPOROG) {//держим в крайнем положении в течении заданного интервала            
+            numHighCurrent++;
+            LED_LEFT ^= 1;
+        }else{
+            if(numHighCurrent)
+                numHighCurrent--;
         }
-        if (numBig == CONSTBIG) {//интервал закончился - останавливаем мотор
+        if (numHighCurrent == CONSTBIG) {//интервал закончился - останавливаем мотор
             IN1 = 0;
             IN2 = 0;
             flag.b.motorMove = 0;
-            numBig = 0;
+            flag.b.currBig = 1;
+            numHighCurrent = 0;
         }
         ADIF = 0;
     }
@@ -214,7 +302,9 @@ __interrupt(high_priority) void Inter(void) {
 
             if (
                     ((nHalfTurn == 1) && (stat == stRevers)) || //останавливаем мотор при реверсе на репере
-                    (nHalfTurn > Turn)
+           //         ((nHalfTurn >  Turn) && flag.b.direct  ) ||//направление открыть
+          //          ((nHalfTurn == Turn) && (!flag.b.direct)) //направление закрыть
+                    (nHalfTurn >  Turn)
                     ) {
                 IN1 = 0;
                 IN2 = 0;
@@ -397,8 +487,6 @@ void main(void) {
     unsigned int delta[3] = {0, 0, 0}; //отклонение текущего значения от усредненного
     unsigned char j, idUser;
     
-
-
     Initial();
     
     nWait = 0;
@@ -411,7 +499,7 @@ void main(void) {
     swMove = ON;
     sound = OFF;
 
-    Turn = 5;
+    Turn = 7;
  //   CPSON = 1; 
     LED_LEFT = 0;
     LED_RIGHT = 0;
@@ -428,7 +516,6 @@ void main(void) {
             
             while (TXIE);//ждем когда завершится предыдущая передача
                 
-LED_RIGHT ^= 1;
             switch (arrToRX[3]) {//байт № 3 - команда  
                 case 0x00: {//ПУЛЬС
                     arrToTX[3] = 0x00;
@@ -520,6 +607,17 @@ LED_RIGHT ^= 1;
                                 allByteTX = 12;                                 
                                 break;
                             } 
+                            case 3 : {//состояние замка
+                                arrToTX[3] = 0x07;
+                                arrToTX[5] = 0x05;            
+                                arrToTX[6] = 0x30;//48 dp направление вращения двигателем
+                                arrToTX[7] = 0x04;//тип данных 
+                                arrToTX[8] = 0x00; arrToTX[9] = 0x01;//один байта данных
+                                arrToTX[10] = flag.b.inverMov;//состояния замка пусть определяется направлением                                                      
+                                arrToTX[11] = checkSum(arrToTX, 11);
+                                allByteTX = 12;                                 
+                                break;
+                            } 
                             default:{}
                         }
                         numParam--;
@@ -531,13 +629,13 @@ LED_RIGHT ^= 1;
                     arrToTX[3] = 0x07;//команда подтверждения приема
                     switch(arrToRX[6]){
                         case 0x06 :{//команда открыть замок по Bluetooth, но для закрытия исползуется почему-то другая pdid46
-                            LED_LEFT ^= 1;
+                            
                             arrToTX[5] = 0x06;arrToTX[6] = 0x06;
                             arrToTX[7] = 0x00;//тип данных raw
                             arrToTX[8] = 0x00; arrToTX[9] = 0x02;//количество - два байта
                             
                             flag.b.swOn = 1;
-                            flag.b.direct = arrToRX[10];//0х00 - закрыть замок, 0х01 - открыть замок 
+                            flag.b.direct = 1;//arrToRX[10];//0х00 - закрыть замок, 0х01 - открыть замок 
                             arrToTX[10] = flag.b.direct;
                             idUser = arrToRX[11];//идентификатор пользователя
                             arrToTX[11] = idUser;
@@ -545,8 +643,7 @@ LED_RIGHT ^= 1;
                             allByteTX = 13;  
                             break;
                         }
-                        case 0x2E :{//команда закрыть замок в ручную по Bluetooth pdid46
-                            LED_LEFT ^= 1;
+                        case 0x2E :{//команда закрыть замок в ручную по Bluetooth pdid46                            
                             arrToTX[5] = 0x05;arrToTX[6] = 0x2E;
                             arrToTX[7] = 0x01;//тип данных boolean
                             arrToTX[8] = 0x00; arrToTX[9] = 0x01;//количество - один байт                            
@@ -555,6 +652,16 @@ LED_RIGHT ^= 1;
                             flag.b.swOn = 1;
                             flag.b.direct = 0;//0 - закрыть замок
                             
+                            arrToTX[11] = checkSum(arrToTX, 11);
+                            allByteTX = 12;  
+                            break;
+                        }
+                        case 0x30 :{//команда направление вращения двигателем                            
+                            arrToTX[5] = 0x05;arrToTX[6] = 0x30;
+                            arrToTX[7] = 0x04;//тип данных raw
+                            arrToTX[8] = 0x00; arrToTX[9] = 0x01;//количество - один байт                                                        
+                            flag.b.inverMov = arrToRX[10];
+                            arrToTX[10] = flag.b.inverMov;                            
                             arrToTX[11] = checkSum(arrToTX, 11);
                             allByteTX = 12;  
                             break;
@@ -578,123 +685,55 @@ LED_RIGHT ^= 1;
         if (flag.b.swOn) {//пришла команта крутить двигатель
             flag.b.swOn = 0;
             CPSON = 0;//вЫключаем сенсорные кнопки
-            
-            //крутим двигатель
-            nHalfTurn = 0;
-            swMove = ON; //включаем драйвер и оптческий датчик
-            ADIE = 0; //
-            IN1 = flag.b.direct ^ flag.b.inverMov;
-            IN2 = !flag.b.direct ^ flag.b.inverMov;
-            flag.b.motorMove = 1; //статус мотор запущен
-            stat = stDevTurn; //статус прямой ход
-            numBig = 0;
-            nWait = 5;
-
-            while (1) {
-                //}{                 
-
-                if (!flag.b.motorMove) {
-                    if (stat == stRevers) {//остановка при обратном ходе
-                        if (flag.b.currBig) {//с превышением тока
-                            Error = errRevers; //застрял при возврате
-                        } else {
-                            IN1 = flag.b.direct ^ flag.b.inverMov; //тормозим реверс обратным направлением
-                            IN2 = !flag.b.direct ^ flag.b.inverMov;
-                            //пауза (прерывания запещены)
-                            TMR2IE = 0;
-                            TMR2 = 0;
-                            nWait = 2;
-                            TMR2IE = 1;
-                            while (nWait);
-                            IN1 = 0;
-                            IN2 = 0;
-                        }
-                        break;
-                    }
-
-                    if (stat == stDevTurn) {
-                        //остановка при превышении пройдет, когда превышение будет зафиксировано долго
-                        if (flag.b.currBig) {//с превышением тока
-                            if (flag.b.reperPos) {//позиция на репере
-                                if (nHalfTurn < Turn) {//недостаточное количество полуоборотов
-                                    Error = errHalf1; //застрял на репере, не выполнив нужное количество полуоборотов    
-                                } else {//достаточное количество полуоборотов
-                                    Error = errHalf2; //застрял на репере, выполнено нужное количество полуоборотов  
-                                }
-                                break;
-                            } else {//позиция НЕ на репере                               
-                                if (nHalfTurn < Turn)//недостаточное количество полуоборотов
-                                    Error = errHalf3; //застрял НЕ на репере, не выполнено нужное количество полуоборотов  
-                                //меняем направление вращения мотора;
-                                IN1 = !flag.b.direct ^ flag.b.inverMov;
-                                IN2 = flag.b.direct ^ flag.b.inverMov;
-                                flag.b.motorMove = 1; //запускаем мотор; 
-                                nHalfTurn = 0;
-                                //пауза (прерывания запещены)
-                                stat = stRevers;
-                            }
-                            flag.b.currBig = 0;
-                        } else {
-                            //тормозим
-                            IN1 = !flag.b.direct ^ flag.b.inverMov;
-                            IN2 = flag.b.direct ^ flag.b.inverMov;
-                            //пауза (прерывания запещены)
-                            TMR2IE = 0;
-                            TMR2 = 0;
-                            nWait = 2;
-                            TMR2IE = 1;
-                            while (nWait);
-                            IN1 = 0;
-                            IN2 = 0;
-                            break;
-                        }
-                    }
-                }
-            }
-            numRep.num++;
-            //CPSON = 1;//включаем сенсорные кнопки
-            //отправляем команду изменения статуса замка
-            while(TXIE);
-            
-            arrToTX[3] = 0x07;
-            arrToTX[5] = 0x05;            
-            arrToTX[6] = 0x2F;//47 dp id статус замка
-            arrToTX[7] = 0x01;//тип данных boolean
-            arrToTX[8] = 0x00; arrToTX[9] = 0x01;//один байта данных
-            arrToTX[10] = flag.b.direct;//состояния замка пусть определяется направлением                                                      
-            arrToTX[11] = checkSum(arrToTX, 11);
-            allByteTX = 12;  
-            numByteTX = 0;
-            TXIE = 1; //разрешаем передачу
-            
-            if(flag.b.direct){//замок открыт
-                //отправляем команду записать в журнал событие "замок открыт"
+            //нужен возврат при застревании
+    //        if(moveMotor()){//возникла ошибка
+    //            flag.b.direct ^= 1;//все в исходную
+                moveMotor();
+    //        }else{
+               //отправляем команду изменения статуса замка
                 while(TXIE);
             
-                arrToTX[3] = 0xE0;//команда записи во флэш
-                arrToTX[5] = 0x09;//количество байт данных
-                arrToTX[6] = 0x01;//время контролирует модуль
-                arrToTX[7] = 0x13;//команда Ble unlock record
-                arrToTX[8] = 0x02;//тип данных value
-                arrToTX[9] = 0x00;arrToTX[10] = 0x04;//количество - 4 байта
-                arrToTX[11] = 0; arrToTX[12] = 0; arrToTX[13] = 0;
-                arrToTX[14] = idUser;
-                arrToTX[15] = checkSum(arrToTX, 15);
-                allByteTX = 16;  
+                arrToTX[3] = 0x07;
+                arrToTX[5] = 0x05;            
+                arrToTX[6] = 0x2F;//47 dp id статус замка
+                arrToTX[7] = 0x01;//тип данных boolean
+                arrToTX[8] = 0x00; arrToTX[9] = 0x01;//один байта данных
+                arrToTX[10] = flag.b.direct;//состояния замка пусть определяется направлением                                                      
+                arrToTX[11] = checkSum(arrToTX, 11);
+                allByteTX = 12;  
                 numByteTX = 0;
                 TXIE = 1; //разрешаем передачу
-            }
+            
+                if(flag.b.direct){//замок открыт
+                //отправляем команду записать в журнал событие "замок открыт"
+                    while(TXIE);
+            
+                    arrToTX[3] = 0xE0;//команда записи во флэш
+                    arrToTX[5] = 0x09;//количество байт данных
+                    arrToTX[6] = 0x01;//время контролирует модуль
+                    arrToTX[7] = 0x13;//команда Ble unlock record
+                    arrToTX[8] = 0x02;//тип данных value
+                    arrToTX[9] = 0x00;arrToTX[10] = 0x04;//количество - 4 байта
+                    arrToTX[11] = 0; arrToTX[12] = 0; arrToTX[13] = 0;
+                    arrToTX[14] = idUser;
+                    arrToTX[15] = checkSum(arrToTX, 15);
+                    allByteTX = 16;  
+                    numByteTX = 0;
+                    TXIE = 1; //разрешаем передачу
+                }
+           // }
         }
+            //CPSON = 1;//включаем сенсорные кнопки
         nWaitS = 100;
  //пока без паузы       while (nWaitS); //пауза между циклами
-        if (cicleGo) {//если циклический режим работы разрешен
+ /*       if (cicleGo) {//если циклический режим работы разрешен
             flag.b.swOn = 1;
             flag.b.direct ^= 1;
             if (flag.b.direct) {
                 Status |= 0x20;
             } else
                 Status &= 0xDF;
-        }        
+        }   */     
         
         
         /* передача статуса и прием команд    

@@ -29,7 +29,7 @@
 #define onBAT_DIR  TRISC6//pin 8
 #define onBAT      RC6
 
-#define CONSTPOROG 70//24 для датчика 0,2 Ом, получаем при токе 0,5 А напряжение 0,1 В,
+#define CONSTPOROG 50//24 для датчика 0,2 Ом, получаем при токе 0,5 А напряжение 0,1 В,
 //тогда для АЦП 10 разрядов и питании 3,3 В это код 0,1/3,3*1024=31
 
 //CPS1(CPS4) RC0 pin 16, CPS2(CPS5) RC1 pin 15
@@ -59,9 +59,9 @@ byte comm;
 byte cicleGo;
 byte Turn;
 byte Status;
-int numBig;
+int numHighCurrent;
 
-#define CONSTBIG 20
+#define CONSTBIG 5
 
 byte numByteRX;//номер принимаемого байта
 byte allByteRX;//количество байт, которое должно быть в принятом пакете
