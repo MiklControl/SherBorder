@@ -7,10 +7,10 @@
 #define ON          1
 #define OFF      !ON
 
-#define LED_LEFT_DIR    TRISA0
-#define LED_LEFT        RA0
-#define LED_RIGHT_DIR   TRISA1
-#define LED_RIGHT       RA1
+#define LED_OPEN_DIR    TRISC2
+#define LED_OPEN        RC2
+#define LED_CLOSE_DIR   TRISA2
+#define LED_CLOSE       RA2
 
 #define IN1_DIR   TRISC5//pin 5
 #define IN1       RC5
@@ -29,8 +29,8 @@
 #define onBAT_DIR  TRISC6//pin 8
 #define onBAT      RC6
 
-#define CONSTPOROG 50//24 для датчика 0,2 Ом, получаем при токе 0,5 А напряжение 0,1 В,
-//тогда для АЦП 10 разрядов и питании 3,3 В это код 0,1/3,3*1024=31
+#define CONSTPOROG 60//для датчика 0,2 Ом, получаем при токе 0,5 А напряжение 0,1 В,
+//тогда для АЦП 10 разрядов и опорном напряжении 2,048 В это код 0,1/2,048*1024 = 50
 
 //CPS1(CPS4) RC0 pin 16, CPS2(CPS5) RC1 pin 15
 const unsigned char setCh[2] ={4, 5};
@@ -51,9 +51,12 @@ byte nHalfTurn;//количество срабатываний оптического датчика = количество полуоб
 byte numCh;
 unsigned int dl[3];
 unsigned fDl[3];
-unsigned int *p;
+unsigned int *ppp;
 unsigned int nWait, nWaitS;
 byte stat;
+
+unsigned int st;
+
 
 byte comm;
 byte cicleGo;
@@ -73,12 +76,22 @@ byte allByteTX;//количество байта, которое необходимо передать
 byte numByteTX;//номер передаваемого байта
 byte numParam;//количество параметров, требующих отправки на смартфон
 
+word timeDelaySensSW;
+
+#define CONSTHEIGHT 396//3,6 В  0x0100+  35d<<2
+#define CONSTMEDIUM 372//3,4 В  0x0100+  29d<<2
+#define CONSTLOW    352//3,2 В  0x0100+  24d<<2 исходное, после делителя 1 В при питании 2,048 В и 10 разрядном АЦП
+//3.1 21
+//3.0 19
+unsigned int valuePowerADC;//значение кода АЦП при измерении заряда батареи
+word timePower;//таймер проверки заряда аккумулятора
+
 union{
         unsigned int num;
         byte b[2];
 } numRep, wValADC;
     
-unsigned int arrAkk[16][3];
+unsigned int arrAkk[16][2];
 
 union{
     byte all;
@@ -91,7 +104,7 @@ union{
         unsigned direct: 1;//направление вращения мотора 0 - закрыть, 1 - открыть        
         unsigned currBig: 1;//значение тока превышено
         unsigned reperPos: 1;//положение на репере
-        unsigned tong: 1;//наличие языка защелки
+        unsigned blink: 1;//разрешить мигание светодиодом
     }b;
 }flag;
 
@@ -102,5 +115,6 @@ union{
         unsigned timeOut: 1;//время истекло
         unsigned readOk: 1;//пакет принят
         unsigned firstOn : 1;//первый ответ на ПУЛЬС
+        unsigned checkBattery : 1;//проверить заряд аккумулятора
     }b;
 }detect;
