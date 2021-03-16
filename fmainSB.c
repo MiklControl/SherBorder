@@ -14,26 +14,18 @@
 
 #pragma config WDTE = OFF, PWRTE = OFF, BOREN = OFF, MCLRE = ON, FCMEN = OFF, LVP = OFF, FOSC = INTOSC, STVREN = OFF
 
-//макрос остановки
-#define MPauseStop \
-    TMR2IE = 0;\
-    TMR2 = 0;\
-    nWait = 2;\
-    TMR2IE = 1;\
-    while (nWait);\
-    IN1 = 0;\
-    IN2 = 0;
+
 //макрос обнуления сенсорной клавиатуры
 #define MSensSW \
-    sensSW[0].sampl = 0; \
-    sensSW[1].sampl = 0; \
-    sensSW[0].level = 0; \
-    sensSW[1].level = 0;
-
+    for(int iTemp = 0; iTemp < 76; iTemp++) \
+        sensSW.b[iTemp] = 0;           
+    
 //прототипы функций
+
 void Initial(void);
 byte checkSum(byte *p, byte size);
 byte moveMotor();
+
 //------------------------------------------------------------------
 //расчет контрольной суммм 
 
@@ -50,36 +42,44 @@ byte moveMotor() {
     byte Error = 0;
     //крутим двигатель
     nHalfTurn = 0;
-    swMove = ON; //включаем драйвер и оптческий датчик
+    
     //настраиваем канал АЦП
     ADON = 1;
     CHS0 = 1; CHS1 = 1; CHS2 = 0;
     ADIF = 0;
-    ADIE = 1;
-    
+   
     LED_CLOSE = 0;            
     LED_OPEN = 0;
     flag.b.blink = 1;
-    ADIE = 0; //
-    IN1 = flag.b.direct ^ flag.b.inverMov;
-    IN2 = !flag.b.direct ^ flag.b.inverMov;
+    ADIE = 0; 
+    
+    IN1 = flag.b.direct;
+    IN1 ^= flag.b.inverMov;
+    IN2 = !flag.b.direct;
+    IN2 ^= flag.b.inverMov;
+    swMove = ON; //включаем драйвер и оптческий датчик
+    
     flag.b.motorMove = 1; //статус мотор запущен
     stat = stDevTurn; //статус прямой ход
     numHighCurrent = 0;
-    nWait = 25;//15;
+    nWait = 18;//15;
     IOCAF5 = 0;
     IOCIF = 0;
     IOCIE = 1;
 
     while (1) {
         if (!flag.b.motorMove) {
-
+RA1 = 1;
             if (stat == stRevers) {//остановка при обратном ходе
                 if (flag.b.currBig) {//с превышением тока
                     Error = errRevers; //застрял при возврате
                 } else {
-                    IN1 = flag.b.direct ^ flag.b.inverMov; //тормозим реверс обратным направлением
-                    IN2 = !flag.b.direct ^ flag.b.inverMov;                    
+                    IN1 = flag.b.direct;
+                    IN1 ^= flag.b.inverMov;
+                    IN2 = !flag.b.direct;
+                    IN2 ^= flag.b.inverMov;
+                    //IN1 = flag.b.direct ^ flag.b.inverMov; //тормозим реверс обратным направлением
+                    //IN2 = !flag.b.direct ^ flag.b.inverMov;                    
                 }
                 //MPauseStop;
                 break;
@@ -103,8 +103,11 @@ byte moveMotor() {
                             //break; //выходим из цикла
                         }
                         //меняем направление вращения мотора;
-                        IN1 = !flag.b.direct ^ flag.b.inverMov;
-                        IN2 = flag.b.direct ^ flag.b.inverMov;
+                        IN1 = !flag.b.direct;
+                        IN1 ^= flag.b.inverMov;
+                        IN2 = flag.b.direct;
+                        IN2 ^= flag.b.inverMov;
+                        
                         flag.b.motorMove = 1; //запускаем мотор; 
                         nHalfTurn = 0;
                         nWait = 5;
@@ -113,16 +116,29 @@ byte moveMotor() {
                     flag.b.currBig = 0;
                 } else {//превышения по току нет, сработал оптический датчик
                     //тормозим
-                    IN1 = !flag.b.direct ^ flag.b.inverMov;
-                    IN2 = flag.b.direct ^ flag.b.inverMov;
+                    IN1 = !flag.b.direct;
+                    IN1 ^= flag.b.inverMov;
+                    IN2 = flag.b.direct;
+                    IN2 ^= flag.b.inverMov;
                     
                     break;
                 }
             }
+RA1 = 0;
         }
+        RA0 ^= 1;
+        //где-то выключается, приходится дублировать
+        swMove = ON; //включаем драйвер и оптческий датчик
     }
-    MPauseStop;
-    swMove = OFF; //вЫключаем драйвер и оптческий датчик
+    
+    TMR2IE = 0;
+    TMR2 = 0;
+    nWait = 2;
+    TMR2IF = 0; 
+    TMR2IE = 1;
+    while (nWait);
+    IN1 = 0;IN2 = 0;
+    
     flag.b.blink = 0;
     if(flag.b.direct){
         LED_OPEN = 1;
@@ -132,6 +148,7 @@ byte moveMotor() {
         LED_CLOSE = 1;
     }
     IOCIE = 0;
+    swMove = OFF; //вЫключаем драйвер и оптческий датчик
     ADON = 0;
     return Error;
 }
@@ -274,9 +291,7 @@ __interrupt(high_priority) void Inter(void) {
         fDl[numCh] = 1;
 
         CPSCON1 = setCh[numCh]; //устанавливаем канал
-        
-        //numCh = 0;//тест одного канала
-        
+               
         if (numCh) {
             numCh = 0;
         } else {
@@ -299,8 +314,7 @@ __interrupt(high_priority) void Inter(void) {
                     numHighCurrent--;
             }
             if (numHighCurrent == CONSTBIG) {//интервал закончился - останавливаем мотор
-                IN1 = 0;
-                IN2 = 0;
+                IN1 = 0;IN2 = 0;
                 flag.b.motorMove = 0;
                 flag.b.currBig = 1;
                 numHighCurrent = 0;
@@ -342,7 +356,7 @@ __interrupt(high_priority) void Inter(void) {
         if (timeDelaySensSW) 
             timeDelaySensSW--;    
         
-        if(!timePower++)
+        if((!timePower++) && (!flag.b.swOn))
             detect.b.checkBattery = 1;//разрешить проверку заряда аккумулятора
         
         TMR2IF = 0;
@@ -358,8 +372,7 @@ __interrupt(high_priority) void Inter(void) {
                     //          ((nHalfTurn == Turn) && (!flag.b.direct)) //направление закрыть
                     (nHalfTurn > Turn)
                     ) {
-                IN1 = 0;
-                IN2 = 0;
+                IN1 = 0;IN2 = 0;
                 flag.b.motorMove = 0;
             }
             TMR2 = 0;
@@ -544,14 +557,17 @@ void main(void) {
 
 #define CONSTPOR   63// 3    
 #define ALLNUMPARAM 7//количество параметров + 1 которое передается на смартфон
-#define CONSTSIGNALON 150
-    
-    struct sSensorSW{
-        unsigned int sampl;//текущее усредненное значение
-        unsigned int level;//постоянный уровень
-        unsigned int akk;//аккумулятор
-    } sensSW[2];
-    
+#define CONSTSIGNALON 210
+    union uSensorSW{
+        struct sSensorSW{
+            unsigned int sampl;//текущее усредненное значение
+            unsigned int level;//постоянный уровень
+            unsigned int akk;//аккумулятор
+            unsigned int filter[16];//для фильтра НЧ
+        }s[2];
+        byte b[76];
+    } sensSW;
+    unsigned char ifilter, idUser, iakk;
     MSensSW
     
     unsigned int wTemp;    
@@ -560,7 +576,7 @@ void main(void) {
         byte b[2];
     }wADC;
     
-    unsigned char j, idUser, iakk;
+    
     
     //источник команды
     byte commandForMotor;
@@ -777,8 +793,11 @@ void main(void) {
                             arrToTX[8] = 0x00;
                             arrToTX[9] = 0x02; //количество - два байта
                             commandForMotor = cBLEOpen;
+                            
                             flag.b.swOn = 1;
                             flag.b.direct = 1; //arrToRX[10];//0х00 - закрыть замок, 0х01 - открыть замок 
+                            detect.b.checkBattery = 0;
+                            
                             arrToTX[10] = flag.b.direct;
                             idUser = arrToRX[11]; //идентификатор пользователя
                             arrToTX[11] = idUser;
@@ -797,7 +816,8 @@ void main(void) {
                             commandForMotor = cBLEClose;
                             flag.b.swOn = 1;
                             flag.b.direct = 0; //0 - закрыть замок
-
+                            detect.b.checkBattery = 0;
+                            
                             arrToTX[11] = checkSum(arrToTX, 11);
                             allByteTX = 12;
                             break;
@@ -833,14 +853,15 @@ void main(void) {
             detect.b.readOk = 0;
         }
 
-        if (flag.b.swOn) {//пришла команта крутить двигатель
-            flag.b.swOn = 0;
+        if (flag.b.swOn) {//пришла команта крутить двигатель            
             CPSON = 0; //вЫключаем сенсорные кнопки
+            TMR1ON = 0;           
             //нужен возврат при застревании
             //        if(moveMotor()){//возникла ошибка
             //            flag.b.direct ^= 1;//все в исходную
             moveMotor();
             //        }else{
+            TMR1ON = 1;
             //отправляем команду изменения статуса замка
             while (TXIE);
 
@@ -914,6 +935,7 @@ void main(void) {
                     break;
                 }
             }            
+            flag.b.swOn = 0;
             detect.b.checkBattery = 1;                        
             commandForMotor = cNoComm;
         }       
@@ -988,9 +1010,10 @@ void main(void) {
             }
             //выключае делитель
             onBAT = OFF;
-            MSensSW
+            
             CPSON = 1;//включаем сенсорные кнопки
-            timeDelaySensSW = 5;
+            MSensSW
+            timeDelaySensSW = 2;
             detect.b.checkBattery = 0; 
         }        
 
@@ -1003,37 +1026,37 @@ void main(void) {
             wTemp = dl[i];            
       
             //расчет усредненного значения
-            sensSW[i].akk += wTemp;
+            sensSW.s[i].akk += wTemp;
             if(i == 1){            
                 if(iakk == 63){//усредняем для постоянного уровня по 64 значениям,
                 //а для мгновенного отсчета по 16 значениям, чтобы не делить на 16 (не сдвигать на 4)
                 //сдвинем постоянный уровень только на 2
-                    sensSW[0].level = sensSW[0].akk >> 2;
-                    sensSW[0].akk = 0;
-                    sensSW[1].level = sensSW[1].akk >> 2;
-                    sensSW[1].akk = 0;                
+                    sensSW.s[0].level = sensSW.s[0].akk >> 2;
+                    sensSW.s[0].akk = 0;
+                    sensSW.s[1].level = sensSW.s[1].akk >> 2;
+                    sensSW.s[1].akk = 0;                
                     iakk = 0;
                 }else
                     iakk++;
             }  
         
             //НЧ фильтрация       
-            sensSW[i].sampl -= arrAkk[j][i];
-            arrAkk[j][i] = wTemp;
-            sensSW[i].sampl += arrAkk[j][i];
+            sensSW.s[i].sampl -= sensSW.s[i].filter[ifilter];
+            sensSW.s[i].filter[ifilter] = wTemp;
+            sensSW.s[i].sampl += sensSW.s[i].filter[ifilter];
             if(i == 1){
-                if(j < 15){
-                    j++;
+                if(ifilter < 15){
+                    ifilter++;
                 }else{
-                    j = 0;                    
+                    ifilter = 0;                    
                 }
             }
             
             if(!timeDelaySensSW){
             //сравниваем уровень и мгновенное значение
-            if(sensSW[i].level > sensSW[i].sampl){
-                RA0 = 1;RA1 = 0;
-                if ((sensSW[i].level - sensSW[i].sampl) > CONSTSIGNALON)
+            if(sensSW.s[i].level > sensSW.s[i].sampl){
+                
+                if ((sensSW.s[i].level - sensSW.s[i].sampl) > CONSTSIGNALON)
                 {
                     if(i){                        
                         //открыть, а при инверсии закрыть
@@ -1048,14 +1071,13 @@ void main(void) {
                         flag.b.direct = 0 ^ flag.b.inverMov;
                         
                     }                        
-                    flag.b.swOn = 1;  
+                    flag.b.swOn = 1; 
+                    detect.b.checkBattery = 0;//запрет на проверку заряда батареи
                     if(flag.b.direct)
                         commandForMotor = cSensSWOpen;
                     else
                         commandForMotor = cSensSWClose;
-                }
-            }else{
-                RA0 = 0;RA1 = 1;
+                }          
             }
             }
 #ifdef test

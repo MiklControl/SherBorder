@@ -29,7 +29,7 @@
 #define onBAT_DIR  TRISC6//pin 8
 #define onBAT      RC6
 
-#define CONSTPOROG 60//для датчика 0,2 Ом, получаем при токе 0,5 А напряжение 0,1 В,
+#define CONSTPOROG 47//для датчика 0,2 Ом, получаем при токе 0,5 А напряжение 0,1 В,
 //тогда для АЦП 10 разрядов и опорном напряжении 2,048 В это код 0,1/2,048*1024 = 50
 
 //CPS1(CPS4) RC0 pin 16, CPS2(CPS5) RC1 pin 15
@@ -89,9 +89,7 @@ word timePower;//таймер проверки заряда аккумулятора
 union{
         unsigned int num;
         byte b[2];
-} numRep, wValADC;
-    
-unsigned int arrAkk[16][2];
+} numRep, wValADC;    
 
 union{
     byte all;
