@@ -202,6 +202,9 @@ void Initial(void) {
     //CPSRNG0 = 1; CPSRNG1 = 0;
     WPUC0 = 0; //
     WPUC1 = 0;
+    
+    numCh = 0;
+    CPSCON1 = setCh[numCh];
 
     TMR0CS = 0; //частота Fosc/4
     PSA = 0;
@@ -263,7 +266,6 @@ void Initial(void) {
     WPUC3 = 0;
     INLVLC3 = 1;
 
-    ppp = (unsigned int *) &TMR1L;
     //T0IE = 1;
 
     PEIE = 1;
@@ -273,14 +275,14 @@ void Initial(void) {
 //функция обработки прерываний 
 
 __interrupt(high_priority) void Inter(void) {
-    unsigned int wTemp;
-    byte *pArr;
+    unsigned int wTemp;    
 
     //сделать только для двух кнопок
     if (TMR1GIF && TMR1GIE) {        
         TMR1GIF = 0;
         T1GCONbits.T1GGO = 1;
-        wTemp = *ppp;
+        
+        wTemp = (unsigned int)(TMR1H << 8) + TMR1L;
         dl[numCh] = wTemp;
         fDl[numCh] = 1;
 
@@ -384,13 +386,12 @@ __interrupt(high_priority) void Inter(void) {
             CREN = 1;
         } else {//читаем байт
 
-            arrToRX[numByteRX] = RCREG;
-            pArr = arrToRX + numByteRX;
+            arrToRX[numByteRX] = RCREG;            
             numByteRX++;
             switch (numByteRX) {
                 case 1:
                 {
-                    if (*pArr != 0x55) {//это не первый байт
+                    if (arrToRX[0] != 0x55) {//это не первый байт
                         numByteRX = 0;
                     } else
                         timeTactRead = 10; //максимальное время на прием всего пакета
@@ -398,7 +399,7 @@ __interrupt(high_priority) void Inter(void) {
                 }
                 case 2:
                 {
-                    if (*pArr != 0xAA)//это не второй байт
+                    if (arrToRX[1] != 0xAA)//это не второй байт
                         numByteRX = 0;
                     break;
                 }
@@ -410,8 +411,8 @@ __interrupt(high_priority) void Inter(void) {
                 case 6:
                 {
 
-                    allByteRX = 6 + 1 + *pArr; //общее количество байт в пакете
-                    timeTactRead += *pArr * 2;
+                    allByteRX = 6 + 1 + arrToRX[5]; //общее количество байт в пакете
+                    timeTactRead += arrToRX[5] * 2;
                     break;
                 }
                 default:
