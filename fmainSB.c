@@ -7,21 +7,15 @@
  * контроль заряда аккумулятора
  */
 #include <pic.h>
+#include <proc\pic16f1829.h>
 #include "fdataSB.h"
 
 #define SMART
 //#define test
 
 #pragma config WDTE = OFF, PWRTE = OFF, BOREN = OFF, MCLRE = ON, FCMEN = OFF, LVP = OFF, FOSC = INTOSC, STVREN = OFF
-
-
-//макрос обнуления сенсорной клавиатуры
-#define MSensSW \
-    for(int iTemp = 0; iTemp < 76; iTemp++) \
-        sensSW.b[iTemp] = 0;           
     
 //прототипы функций
-
 void Initial(void);
 byte checkSum(byte *p, byte size);
 byte moveMotor();
@@ -128,7 +122,7 @@ RA1 = 0;
         }
         RA0 ^= 1;
         //где-то выключается, приходится дублировать
-        swMove = ON; //включаем драйвер и оптческий датчик
+        //swMove = ON; //включаем драйвер и оптческий датчик
     }
     
     TMR2IE = 0;
@@ -356,8 +350,8 @@ __interrupt(high_priority) void Inter(void) {
         if (timeDelaySensSW) 
             timeDelaySensSW--;    
         
-        if((!timePower++) && (!flag.b.swOn))
-            detect.b.checkBattery = 1;//разрешить проверку заряда аккумулятора
+        //if((!timePower++) && (!flag.b.swOn))
+        //    detect.b.checkBattery = 1;//разрешить проверку заряда аккумулятора
         
         TMR2IF = 0;
     }
@@ -541,7 +535,7 @@ void main(void) {
             byte levelPower;//уровень заряда аккумулятора
             byte directMotor;//направление вращения двигателя при открытии
         }prop;
-        byte all[12];
+        byte all[2];
     } myLock;
     
 //уровень заряда    
@@ -550,33 +544,30 @@ void main(void) {
 #define lLow    0x02
 #define lZero   0x03
     
-    for(i = 0; i < 12; i++)
+    for(i = 0; i < 2; i++)
         myLock.all[i] = 0;
     
     byte bTemp;
 
 #define CONSTPOR   63// 3    
 #define ALLNUMPARAM 7//количество параметров + 1 которое передается на смартфон
-#define CONSTSIGNALON 210
-    union uSensorSW{
-        struct sSensorSW{
-            unsigned int sampl;//текущее усредненное значение
-            unsigned int level;//постоянный уровень
-            unsigned int akk;//аккумулятор
-            unsigned int filter[16];//для фильтра НЧ
-        }s[2];
-        byte b[76];
-    } sensSW;
-    unsigned char ifilter, idUser, iakk;
-    MSensSW
+#define CONSTSIGNALON 80
+    
+    struct sSensorSW{
+        unsigned int sampl;//текущее усредненное значение
+        unsigned int level;//постоянный уровень
+        unsigned int akk;//аккумулятор        
+    } sensSW[2];
+#define CONSTAKK    8     
+    unsigned int filter[CONSTAKK][2];//для фильтра НЧ
+    
+    unsigned char ifilter, idUser, iakk;   
     
     unsigned int wTemp;    
     union{
         unsigned int w;    
         byte b[2];
-    }wADC;
-    
-    
+    }wADC; 
     
     //источник команды
     byte commandForMotor;
@@ -620,7 +611,8 @@ void main(void) {
     LED_CLOSE = 0;
     
     detect.b.firstOn = 1;
-
+    detect.b.sensSWzero = 1;
+    
     while (1) {
 
         if (detect.b.readOk) {//если есть принятый пакет, то анализируем его
@@ -859,7 +851,10 @@ void main(void) {
             //нужен возврат при застревании
             //        if(moveMotor()){//возникла ошибка
             //            flag.b.direct ^= 1;//все в исходную
+            RCIE = 0;
+            RCIF = 0;
             moveMotor();
+            RCIE = 1;
             //        }else{
             TMR1ON = 1;
             //отправляем команду изменения статуса замка
@@ -975,7 +970,7 @@ void main(void) {
             //if (bTemp != myLock.prop.levelPower)
             {            
                 myLock.prop.levelPower = bTemp;//меняем статус зарядки, сообщаем смартфону
-                while (TXIE); //ждем когда завершится предыдущая передача
+             /*   while (TXIE); //ждем когда завершится предыдущая передача
                 //55 AA 00 E0 00 06 01 09 04 00 01 01 F5
                 arrToTX[3] = 0xE0; //ответ на запрос статуса - настроек 
                 arrToTX[5] = 0x06;
@@ -989,7 +984,7 @@ void main(void) {
                 allByteTX = 13; 
                 numByteTX = 0;
                 TXIE = 1;
-                while (TXIE);
+                while (TXIE);*/
                 //55 AA 00 E0 00 09 01 08 02 00 04 00 00 00 1D 14
                 /*arrToTX[3] = 0xE0; //ответ на запрос статуса - настроек 
                 arrToTX[5] = 0x09;
@@ -1011,12 +1006,26 @@ void main(void) {
             //выключае делитель
             onBAT = OFF;
             
-            CPSON = 1;//включаем сенсорные кнопки
-            MSensSW
-            timeDelaySensSW = 2;
+            CPSON = 1;//включаем сенсорные кнопки            
+            timeDelaySensSW = 10;
+            detect.b.sensSWzero = 1;
             detect.b.checkBattery = 0; 
         }        
-
+        
+        if(detect.b.sensSWzero){
+            for(i = 0; i < CONSTAKK; i++){
+                filter[i][0] = 0;
+                filter[i][1] = 0;
+            }
+                
+            sensSW[0].sampl = 0;
+            sensSW[1].sampl = 0;
+            sensSW[0].akk = 0;
+            sensSW[1].akk = 0;
+            sensSW[0].level = 0;
+            sensSW[1].level = 0;
+            detect.b.sensSWzero = 0;
+        }
         //анализ сенсорных кнопок
         for (i = 0; i < 2; i++) {            
             if (fDl[i] == 0) {
@@ -1026,26 +1035,26 @@ void main(void) {
             wTemp = dl[i];            
       
             //расчет усредненного значения
-            sensSW.s[i].akk += wTemp;
+            sensSW[i].akk += wTemp;
             if(i == 1){            
-                if(iakk == 63){//усредняем для постоянного уровня по 64 значениям,
-                //а для мгновенного отсчета по 16 значениям, чтобы не делить на 16 (не сдвигать на 4)
-                //сдвинем постоянный уровень только на 2
-                    sensSW.s[0].level = sensSW.s[0].akk >> 2;
-                    sensSW.s[0].akk = 0;
-                    sensSW.s[1].level = sensSW.s[1].akk >> 2;
-                    sensSW.s[1].akk = 0;                
+                if(iakk == 15){//усредняем для постоянного уровня по 16 значениям,
+                //а для мгновенного отсчета по 8 значениям, чтобы не делить на 8 и на 16
+                //сдвинем постоянный уровень только на 1
+                    sensSW[0].level = sensSW[0].akk >> 1;
+                    sensSW[0].akk = 0;
+                    sensSW[1].level = sensSW[1].akk >> 1;
+                    sensSW[1].akk = 0;                
                     iakk = 0;
                 }else
                     iakk++;
             }  
         
             //НЧ фильтрация       
-            sensSW.s[i].sampl -= sensSW.s[i].filter[ifilter];
-            sensSW.s[i].filter[ifilter] = wTemp;
-            sensSW.s[i].sampl += sensSW.s[i].filter[ifilter];
+            sensSW[i].sampl -= filter[ifilter][i];
+            filter[ifilter][i] = wTemp;
+            sensSW[i].sampl += filter[ifilter][i];
             if(i == 1){
-                if(ifilter < 15){
+                if(ifilter < (CONSTAKK - 1)){
                     ifilter++;
                 }else{
                     ifilter = 0;                    
@@ -1054,9 +1063,9 @@ void main(void) {
             
             if(!timeDelaySensSW){
             //сравниваем уровень и мгновенное значение
-            if(sensSW.s[i].level > sensSW.s[i].sampl){
+            if(sensSW[i].level > sensSW[i].sampl){
                 
-                if ((sensSW.s[i].level - sensSW.s[i].sampl) > CONSTSIGNALON)
+                if ((sensSW[i].level - sensSW[i].sampl) > CONSTSIGNALON)
                 {
                     if(i){                        
                         //открыть, а при инверсии закрыть
@@ -1078,7 +1087,8 @@ void main(void) {
                     else
                         commandForMotor = cSensSWClose;
                 }          
-            }
+            } 
+            
             }
 #ifdef test
             if(i)

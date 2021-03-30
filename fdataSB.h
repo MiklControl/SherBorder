@@ -114,5 +114,6 @@ union{
         unsigned readOk: 1;//пакет прин€т
         unsigned firstOn : 1;//первый ответ на ѕ”Ћ№—
         unsigned checkBattery : 1;//проверить зар€д аккумул€тора
+        unsigned sensSWzero : 1;//обнулиь сенсорную клавиатуру
     }b;
 }detect;
