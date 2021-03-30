@@ -46,14 +46,14 @@ const unsigned char setCh[2] ={4, 5};
 #define errHalf3        4
 
 
-byte nHalfTurn;//количество срабатываний оптического датчика = количество полуоборотов
+volatile byte nHalfTurn;//количество срабатываний оптического датчика = количество полуоборотов
 
 byte numCh;
-unsigned int dl[3];
-unsigned fDl[3];
-unsigned int *ppp;
-unsigned int nWait, nWaitS;
-byte stat;
+volatile unsigned int dl[3];
+volatile unsigned fDl[3];
+
+volatile unsigned int nWait, nWaitS;
+volatile byte stat;
 
 unsigned int st;
 
@@ -69,14 +69,14 @@ int numHighCurrent;
 byte numByteRX;//номер принимаемого байта
 byte allByteRX;//количество байт, которое должно быть в принятом пакете
 byte arrToRX[20];
-byte timeTactRead;//оставшееся время на прием всего пакета
+volatile byte timeTactRead;//оставшееся время на прием всего пакета
 
 byte arrToTX[20];
-byte allByteTX;//количество байта, которое необходимо передать
-byte numByteTX;//номер передаваемого байта
+volatile byte allByteTX;//количество байта, которое необходимо передать
+volatile byte numByteTX;//номер передаваемого байта
 byte numParam;//количество параметров, требующих отправки на смартфон
 
-word timeDelaySensSW;
+volatile word timeDelaySensSW;
 
 #define CONSTHEIGHT 396//3,6 В  0x0100+  35d<<2
 #define CONSTMEDIUM 372//3,4 В  0x0100+  29d<<2
@@ -85,13 +85,14 @@ word timeDelaySensSW;
 //3.0 19
 unsigned int valuePowerADC;//значение кода АЦП при измерении заряда батареи
 word timePower;//таймер проверки заряда аккумулятора
+volatile byte LD1, LD2;
 
 union{
         unsigned int num;
         byte b[2];
 } numRep, wValADC;    
 
-union{
+volatile union{
     byte all;
     struct flag1
     {
@@ -106,7 +107,7 @@ union{
     }b;
 }flag;
 
-union{
+volatile union{
     byte all;
     struct flag2
     {
