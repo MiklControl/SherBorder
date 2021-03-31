@@ -11,7 +11,6 @@
 #include "fdataSB.h"
 
 #define SMART
-//#define test
 
 #pragma config WDTE = OFF, PWRTE = OFF, BOREN = OFF, MCLRE = ON, FCMEN = OFF, LVP = OFF, FOSC = INTOSC, STVREN = OFF
     
@@ -63,7 +62,7 @@ byte moveMotor() {
 
     while (1) {
         if (!flag.b.motorMove) {
-RA1 = 1;
+
             if (stat == stRevers) {//остановка при обратном ходе
                 if (flag.b.currBig) {//с превышением тока
                     Error = errRevers; //застрял при возврате
@@ -96,6 +95,7 @@ RA1 = 1;
                             
                             //break; //выходим из цикла
                         }
+                        swMove = OFF;
                         //меняем направление вращения мотора;
                         IN1 = !flag.b.direct;
                         IN1 ^= flag.b.inverMov;
@@ -106,6 +106,7 @@ RA1 = 1;
                         nHalfTurn = 0;
                         nWait = 5;
                         stat = stRevers;
+                        swMove = ON;
                     }
                     flag.b.currBig = 0;
                 } else {//превышения по току нет, сработал оптический датчик
@@ -118,7 +119,6 @@ RA1 = 1;
                     break;
                 }
             }
-RA1 = 0;
         }
         RA0 ^= 1;
         //где-то выключается, приходится дублировать
@@ -278,7 +278,7 @@ __interrupt(high_priority) void Inter(void) {
     unsigned int wTemp;    
 
     //сделать только для двух кнопок
-    if (TMR1GIF && TMR1GIE) {        
+    if (TMR1GIF && TMR1GIE) {           
         TMR1GIF = 0;
         T1GCONbits.T1GGO = 1;
         
@@ -342,8 +342,8 @@ __interrupt(high_priority) void Inter(void) {
             nWaitS++;
             
             if(nWaitS & 0b10000){
-                LED_CLOSE ^= 1 ^ flag.b.direct;            
-                LED_OPEN ^= 0 ^ flag.b.direct;
+                LED_CLOSE = 1 ^ flag.b.direct;            
+                LED_OPEN = 0 ^ flag.b.direct;
             }else{
                 LED_CLOSE = 0;
                 LED_OPEN = 0;
@@ -557,13 +557,13 @@ void main(void) {
     struct sSensorSW{
         unsigned int sampl;//текущее усредненное значение
         unsigned int level;//постоянный уровень
-        unsigned int akk;//аккумулятор        
+        //unsigned int akk;//аккумулятор        
     } sensSW[2];
-#define CONSTAKK    8     
+#define CONSTAKK    6     
     unsigned int filterS[CONSTAKK][2];//для фильтра НЧ
     unsigned int filterL[CONSTAKK * 2][2];
     
-    unsigned char iSampl, idUser, iakk, iLevel;   
+    unsigned char iSampl, idUser, iLevel;   
     
     unsigned int wTemp;    
     union{
@@ -1009,8 +1009,8 @@ void main(void) {
                 
             sensSW[0].sampl = 0;
             sensSW[1].sampl = 0;
-            sensSW[0].akk = 0;
-            sensSW[1].akk = 0;
+            //sensSW[0].akk = 0;
+            //sensSW[1].akk = 0;
             sensSW[0].level = 0;
             sensSW[1].level = 0;
             detect.b.sensSWzero = 0;
@@ -1069,72 +1069,30 @@ void main(void) {
             if(!timeDelaySensSW){
             //сравниваем уровень и мгновенное значение
             //if(sensSW[i].level > sensSW[i].sampl){
-              if(wTemp > sensSW[i].sampl){
+                if(wTemp > sensSW[i].sampl){
               //  if ((sensSW[i].level - sensSW[i].sampl) > CONSTSIGNALON)
-                  if ((wTemp - sensSW[i].sampl) > CONSTSIGNALON)
-                {
-                    if(i){                        
-                        //открыть, а при инверсии закрыть
-                        LED_OPEN = 1 ^ flag.b.inverMov;                        
-                        LED_CLOSE = 0 ^ flag.b.inverMov;
-                        flag.b.direct = 1 ^ flag.b.inverMov;
-                        
-                    }else{     
-                        //закрыть, а при инверсии открыть                        
-                        LED_OPEN = 0 ^ flag.b.inverMov;
-                        LED_CLOSE = 1 ^ flag.b.inverMov;
-                        flag.b.direct = 0 ^ flag.b.inverMov;
-                        
-                    }                        
-                    flag.b.swOn = 1; 
-                    detect.b.checkBattery = 0;//запрет на проверку заряда батареи
-                    if(flag.b.direct)
-                        commandForMotor = cSensSWOpen;
-                    else
-                        commandForMotor = cSensSWClose;
-                }          
-            } 
-            
-            }
-#ifdef test
-            if(i)
-                uTemp.wT = sensSW[0].sampl & 0x3FFF;
-            else
-                uTemp.wT = sensSW[0].level & 0x3FFF;            
-                
-            uTemp.wT <<= 1;
-            bTemp = uTemp.bT[0];
-            bTemp >>= 1;
-            while(!TXIF);//ждем когда буфер передачи освободится
-            TXREG = 0x80 + i;
-            NOP();NOP();
-            while(!TXIF);
-            TXREG = bTemp;
-            NOP();NOP();
-            while(!TXIF);//ждем когда буфер передачи освободится
-            bTemp = uTemp.bT[1];                       
-            TXREG = bTemp;
-#endif            
-               //uTemp.wT = arrMean[i];
-               /*uTemp.wT = delta[i];            
-               if(uTemp.bT[0] & 0x80){
-                   flag.b.bitData = 1;
-               }else
-                   flag.b.bitData = 0;
-            
-               uTemp.bT[0] &= 0x7F;
-            
-               //uTemp.bT[1] &= 0x1F;
-               uTemp.bT[1] <<= 1;
-               if(flag.b.bitData){
-                   uTemp.bT[1] |= 1;
-               }             
-            
-               uTemp.bT[1] &= 0x1F;
-               uTemp.bT[1] |= i << 5;
-               uTemp.bT[1] |= 0x80;*/
-          
-             
-         }        
+                    if ((wTemp - sensSW[i].sampl) > CONSTSIGNALON)
+                    {
+                        if(i){                        
+                            //открыть, а при инверсии закрыть
+                            LED_OPEN = 1 ^ flag.b.inverMov;                        
+                            LED_CLOSE = 0 ^ flag.b.inverMov;
+                            flag.b.direct = 1 ^ flag.b.inverMov;                        
+                        }else{     
+                            //закрыть, а при инверсии открыть                        
+                            LED_OPEN = 0 ^ flag.b.inverMov;
+                            LED_CLOSE = 1 ^ flag.b.inverMov;
+                            flag.b.direct = 0 ^ flag.b.inverMov;                        
+                        }                        
+                        flag.b.swOn = 1; 
+                        detect.b.checkBattery = 0;//запрет на проверку заряда батареи
+                        if(flag.b.direct)
+                            commandForMotor = cSensSWOpen;
+                        else
+                            commandForMotor = cSensSWClose;
+                    }          
+                }             
+            }                       
+        }        
     }
 }
