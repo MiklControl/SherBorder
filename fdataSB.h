@@ -83,11 +83,11 @@ volatile word timeDelaySensSW;
 #define CONSTLOW    352//3,2 В  0x0100+  24d<<2 исходное, после делителя 1 В при питании 2,048 В и 10 разрядном АЦП
 //3.1 21
 //3.0 19
-unsigned int valuePowerADC;//значение кода АЦП при измерении заряда батареи
+volatile unsigned int valuePowerADC;//значение кода АЦП при измерении заряда батареи
 word timePower;//таймер проверки заряда аккумулятора
 volatile byte LD1, LD2;
 
-union{
+volatile union{
         unsigned int num;
         byte b[2];
 } numRep, wValADC;    

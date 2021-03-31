@@ -37,8 +37,8 @@ byte moveMotor() {
     nHalfTurn = 0;
     
     //настраиваем канал АЦП
-    ADON = 1;
     CHS0 = 1; CHS1 = 1; CHS2 = 0;
+    ADON = 1;
     ADIF = 0;
    
     LED_CLOSE = 0;            
@@ -939,7 +939,8 @@ void main(void) {
         //для теста аккумулятора
         if(detect.b.checkBattery){
   //          CPSON = 0;//вЫключаем сенсорные кнопки 
-     /*       ADIE = 0;
+            ADIE = 0;
+            ADIF = 0;
             ADON = 1;
             //настраиваем канал АЦП AN7
             CHS0 = 1; CHS1 = 1; CHS2 = 1;
@@ -953,13 +954,13 @@ void main(void) {
             while(!valuePowerADC);//измеряем два раза на всякий случай
             wADC.w = valuePowerADC;
             
-            if(valuePowerADC > CONSTHEIGHT){
+            if(wADC.w > CONSTHEIGHT){
                 bTemp = lHeight;
             } else {
-                if(valuePowerADC > CONSTMEDIUM){
+                if(wADC.w > CONSTMEDIUM){
                     bTemp = lMedium;
                 } else{
-                    if(valuePowerADC > CONSTLOW){
+                    if(wADC.w > CONSTLOW){
                         bTemp = lLow;
                     } else{
                         bTemp = lZero;
@@ -988,7 +989,7 @@ void main(void) {
             }
             //выключае делитель
             onBAT = OFF;
-      */      
+            
             CPSON = 1;//включаем сенсорные кнопки            
             timeDelaySensSW = 10;
             detect.b.sensSWzero = 1;
