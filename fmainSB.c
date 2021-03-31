@@ -556,8 +556,7 @@ void main(void) {
     
     struct sSensorSW{
         unsigned int sampl;//текущее усредненное значение
-        unsigned int level;//постоянный уровень
-        //unsigned int akk;//аккумулятор        
+        unsigned int level;//постоянный уровень        
     } sensSW[2];
 #define CONSTAKK    6     
     unsigned int filterS[CONSTAKK][2];//для фильтра НЧ
@@ -1008,9 +1007,7 @@ void main(void) {
             }
                 
             sensSW[0].sampl = 0;
-            sensSW[1].sampl = 0;
-            //sensSW[0].akk = 0;
-            //sensSW[1].akk = 0;
+            sensSW[1].sampl = 0;            
             sensSW[0].level = 0;
             sensSW[1].level = 0;
             detect.b.sensSWzero = 0;
@@ -1022,22 +1019,7 @@ void main(void) {
             }
             fDl[i] = 0;
             wTemp = dl[i];            
-      
-            //расчет усредненного значения
-  /*          sensSW[i].akk += wTemp;
-            if(i == 1){            
-                if(iakk == 15){//усредняем для постоянного уровня по 16 значениям,
-                //а для мгновенного отсчета по 8 значениям, чтобы не делить на 8 и на 16
-                //сдвинем постоянный уровень только на 1
-                    sensSW[0].level = sensSW[0].akk >> 1;
-                    sensSW[0].akk = 0;
-                    sensSW[1].level = sensSW[1].akk >> 1;
-                    sensSW[1].akk = 0;                
-                    iakk = 0;
-                }else
-                    iakk++;
-            }  
- */       
+                         
             //НЧ фильтрация  
             if(i == 1){
                 bTemp = CONSTAKK - 1;
