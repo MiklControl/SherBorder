@@ -560,9 +560,10 @@ void main(void) {
         unsigned int akk;//аккумулятор        
     } sensSW[2];
 #define CONSTAKK    8     
-    unsigned int filter[CONSTAKK][2];//для фильтра НЧ
+    unsigned int filterS[CONSTAKK][2];//для фильтра НЧ
+    unsigned int filterL[CONSTAKK * 2][2];
     
-    unsigned char ifilter, idUser, iakk;   
+    unsigned char iSampl, idUser, iakk, iLevel;   
     
     unsigned int wTemp;    
     union{
@@ -939,7 +940,7 @@ void main(void) {
         //для теста аккумулятора
         if(detect.b.checkBattery){
   //          CPSON = 0;//вЫключаем сенсорные кнопки 
-            ADIE = 0;
+     /*       ADIE = 0;
             ADON = 1;
             //настраиваем канал АЦП AN7
             CHS0 = 1; CHS1 = 1; CHS2 = 1;
@@ -967,11 +968,11 @@ void main(void) {
                 }
             }
             ADON = 0;
-            
+           
             //if (bTemp != myLock.prop.levelPower)
             {            
                 myLock.prop.levelPower = bTemp;//меняем статус зарядки, сообщаем смартфону
-             /*   while (TXIE); //ждем когда завершится предыдущая передача
+                while (TXIE); //ждем когда завершится предыдущая передача
                 //55 AA 00 E0 00 06 01 09 04 00 01 01 F5
                 arrToTX[3] = 0xE0; //ответ на запрос статуса - настроек 
                 arrToTX[5] = 0x06;
@@ -984,29 +985,11 @@ void main(void) {
                 arrToTX[12] = checkSum(arrToTX, 12);
                 allByteTX = 13; 
                 numByteTX = 0;
-                TXIE = 1;
-                while (TXIE);*/
-                //55 AA 00 E0 00 09 01 08 02 00 04 00 00 00 1D 14
-                /*arrToTX[3] = 0xE0; //ответ на запрос статуса - настроек 
-                arrToTX[5] = 0x09;
-                arrToTX[6] = 0x01;
-                arrToTX[7] = 0x08; //id заряд аккумулятора в виде значений
-                arrToTX[8] = 0x02; //тип данных интеджер
-                arrToTX[9] = 0x00;
-                arrToTX[10] = 0x04; //количество - 4 байт
-                arrToTX[11] = 0; 
-                arrToTX[12] = 0; 
-                arrToTX[13] = 0; 
-                arrToTX[14] = wADC.b[0] >> 2; 
-                arrToTX[15] = checkSum(arrToTX, 15);
-                allByteTX = 16;
-                numByteTX = 0;
-                TXIE = 1; //разрешаем передачу   
-                 * */         
+                TXIE = 1;                       
             }
             //выключае делитель
             onBAT = OFF;
-            
+      */      
             CPSON = 1;//включаем сенсорные кнопки            
             timeDelaySensSW = 10;
             detect.b.sensSWzero = 1;
@@ -1015,8 +998,13 @@ void main(void) {
         
         if(detect.b.sensSWzero){
             for(i = 0; i < CONSTAKK; i++){
-                filter[i][0] = 0;
-                filter[i][1] = 0;
+                filterS[i][0] = 0;
+                filterS[i][1] = 0;
+            }
+            bTemp = 2 * CONSTAKK;
+            for(i = 0; i < bTemp; i++){
+                filterL[i][0] = 0;
+                filterL[i][1] = 0;
             }
                 
             sensSW[0].sampl = 0;
@@ -1036,7 +1024,7 @@ void main(void) {
             wTemp = dl[i];            
       
             //расчет усредненного значения
-            sensSW[i].akk += wTemp;
+  /*          sensSW[i].akk += wTemp;
             if(i == 1){            
                 if(iakk == 15){//усредняем для постоянного уровня по 16 значениям,
                 //а для мгновенного отсчета по 8 значениям, чтобы не делить на 8 и на 16
@@ -1049,24 +1037,41 @@ void main(void) {
                 }else
                     iakk++;
             }  
-        
-            //НЧ фильтрация       
-            sensSW[i].sampl -= filter[ifilter][i];
-            filter[ifilter][i] = wTemp;
-            sensSW[i].sampl += filter[ifilter][i];
+ */       
+            //НЧ фильтрация  
             if(i == 1){
-                if(ifilter < (CONSTAKK - 1)){
-                    ifilter++;
+                bTemp = CONSTAKK - 1;
+                if(iSampl < bTemp){
+                    iSampl++;
                 }else{
-                    ifilter = 0;                    
+                    iSampl = 0;                    
                 }
             }
+            sensSW[i].sampl -= filterS[iSampl][i];
+            filterS[iSampl][i] = wTemp;
+            sensSW[i].sampl += filterS[iSampl][i];
             
+            if(i == 1){
+                bTemp = 2 * CONSTAKK - 1;
+                if(iLevel < bTemp){
+                    iLevel++;
+                }else{
+                    iLevel = 0;                    
+                }
+            }
+            sensSW[i].level -= filterL[iLevel][i];
+            filterL[iLevel][i] = wTemp;
+            sensSW[i].level += filterL[iLevel][i];
+            
+            wTemp = sensSW[i].level;
+            wTemp >>= 1;
+                    
             if(!timeDelaySensSW){
             //сравниваем уровень и мгновенное значение
-            if(sensSW[i].level > sensSW[i].sampl){
-                
-                if ((sensSW[i].level - sensSW[i].sampl) > CONSTSIGNALON)
+            //if(sensSW[i].level > sensSW[i].sampl){
+              if(wTemp > sensSW[i].sampl){
+              //  if ((sensSW[i].level - sensSW[i].sampl) > CONSTSIGNALON)
+                  if ((wTemp - sensSW[i].sampl) > CONSTSIGNALON)
                 {
                     if(i){                        
                         //открыть, а при инверсии закрыть
