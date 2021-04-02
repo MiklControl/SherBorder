@@ -95,7 +95,7 @@ volatile byte LD1, LD2;
 volatile union{
         unsigned int num;
         byte b[2];
-} numRep, wValADC;    
+} numRep;
 
 volatile union{
     byte all;

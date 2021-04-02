@@ -42,12 +42,13 @@ byte moveMotor() {
     //настраиваем канал АЦП
     CHS0 = 1; CHS1 = 1; CHS2 = 0;
     ADON = 1;
-    ADIF = 0;
+    
    
     LED_CLOSE = 0;            
     LED_OPEN = 0;
     flag.b.blink = 1;
     ADIE = 0; 
+    ADIF = 0;    
     
     byte bTemp = flag.b.direct;
     bTemp ^= flag.b.inverMov;
@@ -59,12 +60,6 @@ byte moveMotor() {
         setbit(PORTC, bIN2);
         clrbit(PORTC, bIN1);
     }
-/*      
-    IN1 = flag.b.direct;
-    IN1 ^= flag.b.inverMov;
-    IN2 = !flag.b.direct;
-    IN2 ^= flag.b.inverMov;
-    */
     swMove = ON; //включаем драйвер и оптческий датчик
     
     flag.b.motorMove = 1; //статус мотор запущен
@@ -298,7 +293,13 @@ void Initial(void) {
 
 __interrupt(high_priority) void Inter(void) {
     unsigned int wTemp;    
-
+    byte *p;
+    /*
+    union{
+        unsigned int num;
+        byte b[2];
+    } wValADC;  */
+    
     //сделать только для двух кнопок
     if (TMR1GIF && TMR1GIE) {           
         TMR1GIF = 0;
@@ -320,12 +321,16 @@ __interrupt(high_priority) void Inter(void) {
     }
 
     if (ADIE && ADIF) {//опрос АЦП
-        wValADC.b[1] = ADRESH;
-        wValADC.b[0] = ADRESL;
+        p = (byte *)&wTemp;
+        //wValADC.b[1] = ADRESH;
+        //wValADC.b[0] = ADRESL;
+        *p++ = ADRESL;
+        *p = ADRESH;
         if(detect.b.checkBattery){
-            valuePowerADC = wValADC.num;
+            valuePowerADC = wTemp;//wValADC.num;
         }else{
-            if (wValADC.num > CONSTPOROG) {//держим в крайнем положении в течении заданного интервала            
+            //if (wValADC.num > CONSTPOROG) {//держим в крайнем положении в течении заданного интервала            
+            if (wTemp > CONSTPOROG) {//держим в крайнем положении в течении заданного интервала            
                 numHighCurrent++;            
             } else {
                 if (numHighCurrent)
@@ -338,27 +343,29 @@ __interrupt(high_priority) void Inter(void) {
                 numHighCurrent = 0;
             }
         }
-        ADIF = 0;
+        ADIF = 0;        
     }
 
     if (TMR2IE && TMR2IF) {
         if (nWait) {
             nWait--;
-            if (!nWait) {//по завершению временной паузы разрешаем опрос АЦП
+            if (!nWait) {//по завершению временной паузы разрешаем опрос АЦП                                
                 ADIF = 0;
-                ADIE = 1;
+                ADIE = 1;                
             }
         }       
-
+        
+        if(ADIE)
+            if(!ADCON0bits.GO)
+                ADCON0bits.GO = 1;
+        
         if (timeTactRead) {
             timeTactRead--;
         } else//время вышло на прием пакета
             if (!detect.b.readOk) {//пакет еще не принят
             numByteRX = 0; //будем принимать новый пакет
         }
-
-        if (!ADCON0bits.GO)
-            ADCON0bits.GO = 1;
+        
         //flag.b.blink = 0;
         if(flag.b.blink){
             nWaitS++;
@@ -387,7 +394,7 @@ __interrupt(high_priority) void Inter(void) {
     if (IOCIE && IOCAF5) {
         if (!nWait) {
             nHalfTurn++;
-
+            RA1 ^= 1;
             if (  ((nHalfTurn == 1) && (stat == stRevers)) || //останавливаем мотор при реверсе на репере
                     //         ((nHalfTurn >  Turn) && flag.b.direct  ) ||//направление открыть
                     //          ((nHalfTurn == Turn) && (!flag.b.direct)) //направление закрыть
@@ -486,7 +493,7 @@ void main(void) {
 
 #define CONSTPOR   63// 3    
 #define ALLNUMPARAM 7//количество параметров + 1 которое передается на смартфон
-#define CONSTSIGNALON 50
+#define CONSTSIGNALON 40
     
     struct sSensorSW{
         unsigned int sampl;//текущее усредненное значение
@@ -882,7 +889,8 @@ void main(void) {
             //подключаем делитель
             onBAT = ON; 
             nWait = 4;
-            valuePowerADC = 0;
+            valuePowerADC = 0;            
+            
             while(!valuePowerADC);
             valuePowerADC = 0;
             while(!valuePowerADC);//измеряем два раза на всякий случай
@@ -928,6 +936,8 @@ void main(void) {
             timeDelaySensSW = 10;
             detect.b.sensSWzero = 1;
             detect.b.checkBattery = 0; 
+            LED_OPEN = 0;
+            LED_CLOSE = 0;
         }        
         
         if(detect.b.sensSWzero){
