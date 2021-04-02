@@ -9,13 +9,18 @@
 
 #define LED_OPEN_DIR    TRISC2
 #define LED_OPEN        RC2
+#define bLED_OPEN   2
 #define LED_CLOSE_DIR   TRISA2
 #define LED_CLOSE       RA2
+#define bLED_CLOSE  2    
 
 #define IN1_DIR   TRISC5//pin 5
 #define IN1       RC5
 #define IN2_DIR   TRISC4//pin 6
 #define IN2       RC4
+#define bIN2       4
+#define bIN1       5
+
 #define swMove_DIR  TRISC7//pin 9
 #define swMove      RC7
 #define swConf_DIR  TRISB6//pin 11

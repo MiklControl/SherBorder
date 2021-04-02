@@ -12,6 +12,9 @@
 
 #define SMART
 
+#define setbit(var, bit) ((var) |= (1 << (bit)))
+#define clrbit(var, bit) ((var) &= ~(1 << (bit)))
+
 #pragma config WDTE = OFF, PWRTE = OFF, BOREN = OFF, MCLRE = ON, FCMEN = OFF, LVP = OFF, FOSC = INTOSC, STVREN = OFF
     
 //прототипы функций
@@ -46,10 +49,22 @@ byte moveMotor() {
     flag.b.blink = 1;
     ADIE = 0; 
     
+    byte bTemp = flag.b.direct;
+    bTemp ^= flag.b.inverMov;
+    bTemp &= 0b1;
+    if(bTemp){
+        setbit(PORTC, bIN1);
+        clrbit(PORTC, bIN2);
+    }else{
+        setbit(PORTC, bIN2);
+        clrbit(PORTC, bIN1);
+    }
+/*      
     IN1 = flag.b.direct;
     IN1 ^= flag.b.inverMov;
     IN2 = !flag.b.direct;
     IN2 ^= flag.b.inverMov;
+    */
     swMove = ON; //включаем драйвер и оптческий датчик
     
     flag.b.motorMove = 1; //статус мотор запущен
@@ -67,12 +82,13 @@ byte moveMotor() {
                 if (flag.b.currBig) {//с превышением тока
                     Error = errRevers; //застр€л при возврате
                 } else {
-                    IN1 = flag.b.direct;
-                    IN1 ^= flag.b.inverMov;
-                    IN2 = !flag.b.direct;
-                    IN2 ^= flag.b.inverMov;
-                    //IN1 = flag.b.direct ^ flag.b.inverMov; //тормозим реверс обратным направлением
-                    //IN2 = !flag.b.direct ^ flag.b.inverMov;                    
+                    if(bTemp){
+                        setbit(PORTC, bIN1);
+                        clrbit(PORTC, bIN2);
+                    }else{
+                        setbit(PORTC, bIN2);
+                        clrbit(PORTC, bIN1);
+                    }//тормозим реверс обратным направлением                                       
                 }
                 //MPauseStop;
                 break;
@@ -96,11 +112,14 @@ byte moveMotor() {
                             //break; //выходим из цикла
                         }
                         swMove = OFF;
-                        //мен€ем направление вращени€ мотора;
-                        IN1 = !flag.b.direct;
-                        IN1 ^= flag.b.inverMov;
-                        IN2 = flag.b.direct;
-                        IN2 ^= flag.b.inverMov;
+                        //мен€ем направление вращени€ мотора;                        
+                        if(bTemp){//реверс
+                            setbit(PORTC, bIN2);
+                            clrbit(PORTC, bIN1);
+                        }else{
+                            setbit(PORTC, bIN1);
+                            clrbit(PORTC, bIN2);
+                        }
                         
                         flag.b.motorMove = 1; //запускаем мотор; 
                         nHalfTurn = 0;
@@ -111,10 +130,13 @@ byte moveMotor() {
                     flag.b.currBig = 0;
                 } else {//превышени€ по току нет, сработал оптический датчик
                     //тормозим
-                    IN1 = !flag.b.direct;
-                    IN1 ^= flag.b.inverMov;
-                    IN2 = flag.b.direct;
-                    IN2 ^= flag.b.inverMov;
+                    if(bTemp){//реверс
+                        setbit(PORTC, bIN2);
+                        clrbit(PORTC, bIN1);
+                    }else{
+                        setbit(PORTC, bIN1);
+                        clrbit(PORTC, bIN2);
+                    }
                     
                     break;
                 }
@@ -310,7 +332,7 @@ __interrupt(high_priority) void Inter(void) {
                     numHighCurrent--;
             }
             if (numHighCurrent == CONSTBIG) {//интервал закончилс€ - останавливаем мотор
-                IN1 = 0;IN2 = 0;
+             //   IN1 = 0;IN2 = 0;
                 flag.b.motorMove = 0;
                 flag.b.currBig = 1;
                 numHighCurrent = 0;
@@ -337,16 +359,19 @@ __interrupt(high_priority) void Inter(void) {
 
         if (!ADCON0bits.GO)
             ADCON0bits.GO = 1;
-        
+        //flag.b.blink = 0;
         if(flag.b.blink){
             nWaitS++;
             
             if(nWaitS & 0b10000){
-                LED_CLOSE = 1 ^ flag.b.direct;            
-                LED_OPEN = 0 ^ flag.b.direct;
+                if(flag.b.direct){                                        
+                    setbit(PORTC, bLED_OPEN);
+                }else{                    
+                    setbit(PORTA, bLED_CLOSE);
+                }
             }else{
-                LED_CLOSE = 0;
-                LED_OPEN = 0;
+                clrbit(PORTC, bLED_OPEN);
+                clrbit(PORTA, bLED_CLOSE);                
             }
         }
         if (timeDelaySensSW) 
@@ -368,7 +393,7 @@ __interrupt(high_priority) void Inter(void) {
                     //          ((nHalfTurn == Turn) && (!flag.b.direct)) //направление закрыть
                     (nHalfTurn > Turn)
                     ) {
-                IN1 = 0;IN2 = 0;
+                //IN1 = 0;IN2 = 0;
                 flag.b.motorMove = 0;
             }
             TMR2 = 0;
@@ -423,98 +448,7 @@ __interrupt(high_priority) void Inter(void) {
                     }
                 }
             }
-        }
-
-#ifdef SMART
-
-#else
-        comm = RCREG;
-        switch (comm) {
-            case 0x40:
-            {
-                cicleGo = 1;
-                numRep.num = 0;
-                Status |= 0x40;
-                TXREG = Status;
-                break;
-            }//включаем циклический режим
-            case 0x41:
-            {
-                cicleGo = 0;
-                Status &= 0xBF;
-                TXREG = Status;
-                break;
-            }//вџключаем циклический режим
-            case 0x42:
-            {
-                flag.b.direct = 0b1;
-                TXREG = Status;
-                break;
-            }//открыть 
-            case 0x43:
-            {
-                flag.b.direct = 0b0;
-                TXREG = Status;
-                break;
-            }//закрыть
-            case 0x44:
-            {
-                flag.b.swOn = 0b1;
-                TXREG = Status;
-                break;
-            }//запускаем однократно
-            case 0x45:
-            {
-                TXREG = numRep.b[0];
-                TXREG = numRep.b[1];
-                break;
-            }//чтение количества циклов
-            case 0x46:
-            {
-                TXREG = Status;
-                break;
-            }//чтение статуса
-            case 0x47:
-            {
-                TXREG = wValADC.b[0];
-                TXREG = wValADC.b[1];
-                break;
-            }//чтение ј÷ѕ
-            case 0x48:
-            {
-                flag.b.tong = 0b1;
-                TXREG = Status;
-                break;
-            }//наличие €зыка защелки
-            case 0x49:
-            {
-                flag.b.tong = 0b0;
-                TXREG = Status;
-                break;
-            }//отсутствие €зыка защелки
-            case 0x4A:
-            {
-                flag.b.inverMov = 0b1;
-                TXREG = Status;
-                break;
-            }//реверс включен
-            case 0x4B:
-            {
-                flag.b.inverMov = 0b0;
-                TXREG = Status;
-                break;
-            }//реверс вџключен
-
-            case 0x51: case 0x52: case 0x53: case 0x54:
-            case 0x55: case 0x56: case 0x57: case 0x58:
-            case 0x59:
-            {
-                Turn = comm & 0x0F;
-                TXREG = Turn;
-                break;
-            }//количество полуоборотов
-        }
-#endif        
+        }       
     }
 #ifndef test
     if (TXIE && TXIF) {
@@ -552,13 +486,13 @@ void main(void) {
 
 #define CONSTPOR   63// 3    
 #define ALLNUMPARAM 7//количество параметров + 1 которое передаетс€ на смартфон
-#define CONSTSIGNALON 80
+#define CONSTSIGNALON 50
     
     struct sSensorSW{
         unsigned int sampl;//текущее усредненное значение
         unsigned int level;//посто€нный уровень        
     } sensSW[2];
-#define CONSTAKK    6     
+#define CONSTAKK    5     
     unsigned int filterS[CONSTAKK][2];//дл€ фильтра Ќ„
     unsigned int filterL[CONSTAKK * 2][2];
     
