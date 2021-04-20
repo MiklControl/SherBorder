@@ -183,6 +183,8 @@ void Initial(void) {
     ANSELAbits.ANSA1 = 0;
     TRISA0 = OUTPUT;
     TRISA1 = OUTPUT;
+    RA0 = 0;
+    RA1 = 0;
     
     LATCbits.LATC5 = 0;
     IN1_DIR = OUTPUT;
@@ -195,7 +197,7 @@ void Initial(void) {
     SSP1CON1bits.SSPEN = 0;
     ANSELCbits.ANSC7 = 0;
     sound_DIR = OUTPUT;
-    sound = ON;
+    sound = OFF;
     onBAT_DIR = OUTPUT;
     onBAT = OFF;
 
@@ -283,8 +285,9 @@ void Initial(void) {
     WPUC3 = 0;
     INLVLC3 = 1;
 
-    //T0IE = 1;
-
+    //T0IE = 1;     
+    SWDTEN = 0; ;
+    
     PEIE = 1;
     GIE = 1;
 }
@@ -529,7 +532,7 @@ void main(void) {
     arrToTX[4] = 0x00; //старший байт параметра "количество байт"
 
     //swMove = ON;
-    sound = OFF;
+    
 
     Turn = 7; //чтоб на верняка
     CPSON = 1;
