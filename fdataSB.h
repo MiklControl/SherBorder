@@ -81,8 +81,6 @@ volatile byte allByteTX;//количество байта, которое необходимо передать
 volatile byte numByteTX;//номер передаваемого байта
 byte numParam;//количество параметров, требующих отправки на смартфон
 
-volatile word timeDelaySensSW;
-
 #define CONSTHEIGHT 396//3,6 В  0x0100+  35d<<2
 #define CONSTMEDIUM 372//3,4 В  0x0100+  29d<<2
 #define CONSTLOW    352//3,2 В  0x0100+  24d<<2 исходное, после делителя 1 В при питании 2,048 В и 10 разрядном АЦП

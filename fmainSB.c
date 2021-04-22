@@ -43,12 +43,8 @@ byte moveMotor() {
     CHS0 = 1; CHS1 = 1; CHS2 = 0;
     ADON = 1;
     
-   
     LED_CLOSE = 0;            
-    LED_OPEN = 0;
-    flag.b.blink = 1;
-    ADIE = 0; 
-    ADIF = 0;    
+    LED_OPEN = 0;      
     
     byte bTemp = flag.b.direct;
     bTemp ^= flag.b.inverMov;
@@ -66,6 +62,8 @@ byte moveMotor() {
     stat = stDevTurn; //статус прямой ход
     numHighCurrent = 0;
     nWait = 18;//15;
+    TMR2IE = 1;
+    
     IOCAF5 = 0;
     IOCIF = 0;
     IOCIE = 1;
@@ -137,7 +135,7 @@ byte moveMotor() {
                 }
             }
         }
-        RA0 ^= 1;
+        
         //где-то выключается, приходится дублировать
         //swMove = ON; //включаем драйвер и оптческий датчик
     }
@@ -149,17 +147,11 @@ byte moveMotor() {
     TMR2IE = 1;
     while (nWait);
     IN1 = 0;IN2 = 0;
-    
-    flag.b.blink = 0;
-    if(flag.b.direct){
-        LED_OPEN = 1;
-        LED_CLOSE = 0;
-    }else{
-        LED_OPEN = 0;
-        LED_CLOSE = 1;
-    }
+    LED_OPEN = 0;
+    LED_CLOSE = 0;
     IOCIE = 0;
     swMove = OFF; //вЫключаем драйвер и оптческий датчик
+    TMR2IE = 0;
     ADON = 0;
     return Error;
 }
@@ -279,6 +271,7 @@ void Initial(void) {
     FVREN = 1;//вкл опорное напряжение
     ADFVR0 = 0;ADFVR1 = 1;//2.048 V
     ADPREF0 = 1;ADPREF0 = 1;//используем опорное напряжение
+    ADIE = 1;
     
     WPUA4 = 0; 
     //RС3 pin7 AN7 канал измерения заряда аккумулятора
@@ -296,14 +289,9 @@ void Initial(void) {
 
 __interrupt(high_priority) void Inter(void) {
     unsigned int wTemp;    
-    byte *p;
-    /*
-    union{
-        unsigned int num;
-        byte b[2];
-    } wValADC;  */
+    byte *p;    
     
-    //сделать только для двух кнопок
+    //для двух кнопок
     if (TMR1GIF && TMR1GIE) {           
         TMR1GIF = 0;
         T1GCONbits.T1GGO = 1;
@@ -351,41 +339,35 @@ __interrupt(high_priority) void Inter(void) {
 
     if (TMR2IE && TMR2IF) {
         if (nWait) {
-            nWait--;
-            if (!nWait) {//по завершению временной паузы разрешаем опрос АЦП                                
-                ADIF = 0;
-                ADIE = 1;                
-            }
-        }       
-        
-        if(ADIE)
-            if(!ADCON0bits.GO)
-                ADCON0bits.GO = 1;
+            nWait--;            
+        }else{//по завершению временной паузы разрешаем опрос АЦП 
+            if(detect.b.checkBattery)// измеряем заряд батареи
+                if(!ADCON0bits.GO)
+                    ADCON0bits.GO = 1;        
+            if(flag.b.motorMove){//двигетель крутится 
+                if(!ADCON0bits.GO)
+                    ADCON0bits.GO = 1;
+                //мигаем диодами
+                nWaitS++;            
+                if(nWaitS & 0b10000){
+                    if(flag.b.direct){                                        
+                        setbit(PORTC, bLED_OPEN);
+                    }else{                    
+                        setbit(PORTA, bLED_CLOSE);
+                    }
+                }else{
+                    clrbit(PORTC, bLED_OPEN);
+                    clrbit(PORTA, bLED_CLOSE);                
+                }                
+            }                
+        }           
         
         if (timeTactRead) {
             timeTactRead--;
         } else//время вышло на прием пакета
             if (!detect.b.readOk) {//пакет еще не принят
-            numByteRX = 0; //будем принимать новый пакет
-        }
-        
-        //flag.b.blink = 0;
-        if(flag.b.blink){
-            nWaitS++;
-            
-            if(nWaitS & 0b10000){
-                if(flag.b.direct){                                        
-                    setbit(PORTC, bLED_OPEN);
-                }else{                    
-                    setbit(PORTA, bLED_CLOSE);
-                }
-            }else{
-                clrbit(PORTC, bLED_OPEN);
-                clrbit(PORTA, bLED_CLOSE);                
+                numByteRX = 0; //будем принимать новый пакет
             }
-        }
-        if (timeDelaySensSW) 
-            timeDelaySensSW--;    
         
         //if((!timePower++) && (!flag.b.swOn))
         //    detect.b.checkBattery = 1;//разрешить проверку заряда аккумулятора
@@ -397,7 +379,7 @@ __interrupt(high_priority) void Inter(void) {
     if (IOCIE && IOCAF5) {
         if (!nWait) {
             nHalfTurn++;
-            RA1 ^= 1;
+            
             if (  ((nHalfTurn == 1) && (stat == stRevers)) || //останавливаем мотор при реверсе на репере
                     //         ((nHalfTurn >  Turn) && flag.b.direct  ) ||//направление открыть
                     //          ((nHalfTurn == Turn) && (!flag.b.direct)) //направление закрыть
@@ -408,13 +390,13 @@ __interrupt(high_priority) void Inter(void) {
             }
             TMR2 = 0;
             nWait = 5;
+            TMR2IE = 1;
         }
         IOCAF5 = 0;
         IOCIF = 0;
     }
 
     if (RCIE && RCIF) {
-
         if (RCSTAbits.OERR) {// || detect.b.readOk) {//ошибка переполнения или принятый пакет еще на анализе
             CREN = 0;
             NOP();
@@ -458,7 +440,9 @@ __interrupt(high_priority) void Inter(void) {
                     }
                 }
             }
-        }       
+        }   
+        if(!detect.b.readOk)//пока пакет не принят таймер 2 должен работать
+            TMR2IE = 1;
     }
 #ifndef test
     if (TXIE && TXIF) {
@@ -798,13 +782,17 @@ void main(void) {
             //            flag.b.direct ^= 1;//все в исходную
             RCIE = 0;
             RCIF = 0;
+            
+            RA1 = 0;
             moveMotor();
+            
             RCIE = 1;
             //        }else{
             TMR1ON = 1;
             //отправляем команду изменения статуса замка
             while (TXIE);
-
+            
+            
             arrToTX[3] = 0x07;
             arrToTX[5] = 0x05;
             arrToTX[6] = 0x2F; //47 dp id статус замка
@@ -882,19 +870,19 @@ void main(void) {
         
         //для теста аккумулятора
         if(detect.b.checkBattery){
-  //          CPSON = 0;//вЫключаем сенсорные кнопки 
-            ADIE = 0;
+  //          CPSON = 0;//вЫключаем сенсорные кнопки           
             ADIF = 0;
             ADON = 1;
             //настраиваем канал АЦП AN7
-            CHS0 = 1; CHS1 = 1; CHS2 = 1;
-            
+            CHS0 = 1; CHS1 = 1; CHS2 = 1;            
             //подключаем делитель
             onBAT = ON; 
             nWait = 4;
             valuePowerADC = 0;            
+            TMR2IE = 1;
             
             while(!valuePowerADC);
+            RA1 = 1;
             valuePowerADC = 0;
             while(!valuePowerADC);//измеряем два раза на всякий случай
             wADC.w = valuePowerADC;
@@ -933,14 +921,16 @@ void main(void) {
                 TXIE = 1;                       
             }
             //выключае делитель
-            onBAT = OFF;
-            
-            CPSON = 1;//включаем сенсорные кнопки            
-            timeDelaySensSW = 10;
-            detect.b.sensSWzero = 1;
-            detect.b.checkBattery = 0; 
+            onBAT = OFF;            
+            CPSON = 1;//включаем сенсорные кнопки   
+            detect.b.checkBattery = 0;         
+            nWait = 10;
+            detect.b.sensSWzero = 1;             
             LED_OPEN = 0;
             LED_CLOSE = 0;
+            
+            while(nWait);//ждем завершения паузы
+            TMR2IE = 0;
         }        
         
         if(detect.b.sensSWzero){
@@ -996,7 +986,7 @@ void main(void) {
             wTemp = sensSW[i].level;
             wTemp >>= 1;
                     
-            if(!timeDelaySensSW){
+            if(!nWait){
             //сравниваем уровень и мгновенное значение
             //if(sensSW[i].level > sensSW[i].sampl){
                 if(wTemp > sensSW[i].sampl){
@@ -1022,7 +1012,9 @@ void main(void) {
                             commandForMotor = cSensSWClose;
                     }          
                 }             
-            }                       
+            }                      
+       //     if(!detect.b.readOk)//нет пакетов для обработки
+         //       SLEEP();            
         }        
     }
 }
