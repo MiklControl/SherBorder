@@ -116,6 +116,7 @@ volatile union{
     {
         unsigned timeOut: 1;//врем€ истекло
         unsigned readOk: 1;//пакет прин€т
+        unsigned recData: 1;//идет прием данных
         unsigned firstOn : 1;//первый ответ на ѕ”Ћ№—
         unsigned checkBattery : 1;//проверить зар€д аккумул€тора
         unsigned sensSWzero : 1;//обнулиь сенсорную клавиатуру

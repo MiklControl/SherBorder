@@ -15,8 +15,8 @@
 #define setbit(var, bit) ((var) |= (1 << (bit)))
 #define clrbit(var, bit) ((var) &= ~(1 << (bit)))
 
-#pragma config WDTE = OFF, PWRTE = OFF, BOREN = OFF, MCLRE = ON, FCMEN = OFF, LVP = OFF, FOSC = INTOSC, STVREN = OFF
-    
+//#pragma config WDTE = OFF, PWRTE = OFF, BOREN = OFF, MCLRE = ON, FCMEN = OFF, LVP = OFF, FOSC = INTOSC, STVREN = OFF
+#pragma config WDTE = SWDTEN, PWRTE = OFF, BOREN = OFF, MCLRE = ON, FCMEN = OFF, LVP = OFF, FOSC = INTOSC, STVREN = OFF
 //прототипы функций
 void Initial(void);
 byte checkSum(byte *p, byte size);
@@ -62,6 +62,7 @@ byte moveMotor() {
     stat = stDevTurn; //статус прямой ход
     numHighCurrent = 0;
     nWait = 18;//15;
+    
     TMR2IE = 1;
     
     IOCAF5 = 0;
@@ -129,13 +130,11 @@ byte moveMotor() {
                     }else{
                         setbit(PORTC, bIN1);
                         clrbit(PORTC, bIN2);
-                    }
-                    
+                    }                   
                     break;
                 }
             }
         }
-        
         //где-то выключается, приходится дублировать
         //swMove = ON; //включаем драйвер и оптческий датчик
     }
@@ -149,7 +148,7 @@ byte moveMotor() {
     IN1 = 0;IN2 = 0;
     LED_OPEN = 0;
     LED_CLOSE = 0;
-    IOCIE = 0;
+//sleep    IOCIE = 0;
     swMove = OFF; //вЫключаем драйвер и оптческий датчик
     TMR2IE = 0;
     ADON = 0;
@@ -166,17 +165,44 @@ void Initial(void) {
     IRCF2 = 1;
     IRCF1 = 0;
     IRCF0 = 1; //4 MHz    
-
+/*
+    byte bTemp;    
+    byte numByte;
+   numByte = 7;
+        do{
+            //пауза для одного бита            
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            //NOP();NOP();
+            RA1 ^= 1;
+            bTemp >>= 1;
+            if(RB5)
+                bTemp |= 0x80;
+            else
+                bTemp |= 0x00;
+            
+            //RA1 = 0;   
+            NOP();                                            
+        }while(numByte--);
+        */
+        
     LED_OPEN_DIR = OUTPUT;
     LED_CLOSE_DIR = OUTPUT;
     LATAbits.LATA0 = 0;
     LATAbits.LATA1 = 0;
     ANSELAbits.ANSA0 = 0;
     ANSELAbits.ANSA1 = 0;
-    TRISA0 = OUTPUT;
+//    TRISA0 = OUTPUT;
     TRISA1 = OUTPUT;
-    RA0 = 0;
-    RA1 = 0;
+    TRISA0 = INPUT;
+//    RA0 = 0;
+    RA1 = 0;RA1 = 1;RA1 = 0;RA1 = 1;RA1 = 0;RA1 = 1;RA1 = 0;RA1 = 1;RA1 = 0;
     
     LATCbits.LATC5 = 0;
     IN1_DIR = OUTPUT;
@@ -194,9 +220,12 @@ void Initial(void) {
     onBAT = OFF;
 
     sensOpto_DIR = INPUT;
-    IOCAN5 = 1; //разрешаем прерыание по каналу RA5, перепад из 1 в 0
-    //IOCAP5 = 1;//разрешаем прерыание по каналу RA5, перепад из 0 в 1
+    IOCAN5 = 1; //разрешаем прерыание по каналу RA5, перепад из 1 в 0    
     INLVLA5 = 0; //TTL   триггер шмитта
+    
+    IOCBN5 = 1; //разрешаем прерыание по каналу RB5, перепад из 1 в 0
+    INLVLB5 = 0;
+    
     IOCIE = 1;
 
     swConf_DIR = INPUT;
@@ -227,14 +256,22 @@ void Initial(void) {
 
     T1GPOL = 1;
     T1GSS1 = 0;
-    T1GSS0 = 1;
-    T1GTM = 1;
-    T1GSPM = 1;
-    TMR1GE = 1;
-    TMR1GIE = 1;
+    T1GSS0 = 0;
+    //sleep T1GSS1 = 0;
+    //sleep T1GSS0 = 1;   
+    nT1SYNC = 1;
+    TMR1GE = 0;
+    //sleep T1GSPM = 1;
+    //sleep T1GTM = 1;
+    // sleep TMR1GE = 1;
+    // sleep TMR1GIE = 1;
+    WDTCON &= 0b11000001;
+    //WDTCON |= 0b00001010;//32ms
+    WDTCON |= 0b00001000;//00100 = 1:512 (Interval 16 ms nominal)
+    //WDTCON |= 0b00001110;//00111 = 1:4096 (Interval 128 ms nominal)
 
     T2CON = 0x07; //вкл на 64//0x7F;//включаем таймер и делители на 64 и на 16
-    TMR2IE = 1;
+    //sleep TMR2IE = 1;
 
     //UART    
     TRISB5 = INPUT;
@@ -246,9 +283,7 @@ void Initial(void) {
     SYNC = 0;
     
     SPEN = 1;
-#ifndef  test
-    CREN = 1; //приемник включаем    
-#endif
+
     BRGH = 1;
     BRG16 = 0;    
     TXEN = 1;
@@ -256,11 +291,9 @@ void Initial(void) {
     //SPBRGL = 12; //19200 bit/s
     SPBRGH = 0;
     SPBRGL = 25; //9600 bit/s
-#ifdef test
-    TXCKSEL = 1;//RC4 pin6
-#endif
-    RCIF = 0;
-    RCIE = 1;
+
+    //RCIF = 0;
+    //***RCIE = 1;
 
     //конфигурация АЦП
     ADCON0 = 0;
@@ -289,10 +322,13 @@ void Initial(void) {
 
 __interrupt(high_priority) void Inter(void) {
     unsigned int wTemp;    
-    byte *p;    
-    
+    byte *p;       
+    byte numByte;
+    byte bTemp;
+   
+    SWDTEN = 0; 
     //для двух кнопок
-    if (TMR1GIF && TMR1GIE) {           
+ /*   if (TMR1GIF && TMR1GIE) {           
         TMR1GIF = 0;
         T1GCONbits.T1GGO = 1;
         
@@ -310,7 +346,7 @@ __interrupt(high_priority) void Inter(void) {
         TMR1L = 0;
         TMR1H = 0;       
     }
-
+*/
     if (ADIE && ADIF) {//опрос АЦП
         p = (byte *)&wTemp;
         //wValADC.b[1] = ADRESH;
@@ -338,13 +374,17 @@ __interrupt(high_priority) void Inter(void) {
     }
 
     if (TMR2IE && TMR2IF) {
+        
         if (nWait) {
             nWait--;            
         }else{//по завершению временной паузы разрешаем опрос АЦП 
+            
             if(detect.b.checkBattery)// измеряем заряд батареи
-                if(!ADCON0bits.GO)
-                    ADCON0bits.GO = 1;        
+                if(!ADCON0bits.GO){
+                    ADCON0bits.GO = 1;                     
+                }
             if(flag.b.motorMove){//двигетель крутится 
+                
                 if(!ADCON0bits.GO)
                     ADCON0bits.GO = 1;
                 //мигаем диодами
@@ -361,22 +401,24 @@ __interrupt(high_priority) void Inter(void) {
                 }                
             }                
         }           
-        
+     
         if (timeTactRead) {
             timeTactRead--;
         } else//время вышло на прием пакета
             if (!detect.b.readOk) {//пакет еще не принят
                 numByteRX = 0; //будем принимать новый пакет
+                detect.b.recData = 0;//прием данных завершен
+                IOCBN5 = 1;//разрешаем прерывание UART из sleep
             }
-        
+     
         //if((!timePower++) && (!flag.b.swOn))
         //    detect.b.checkBattery = 1;//разрешить проверку заряда аккумулятора
-        
+   //     RA1 ^= 1;
         TMR2IF = 0;
     }
-
+    if(IOCIE){
     //прерывание по оптическому каналу
-    if (IOCIE && IOCAF5) {
+    if(IOCAF5) {
         if (!nWait) {
             nHalfTurn++;
             
@@ -395,6 +437,34 @@ __interrupt(high_priority) void Inter(void) {
         IOCAF5 = 0;
         IOCIF = 0;
     }
+    if(IOCBF5){
+    //   RA1 = 1;
+        TMR2IE = 1;                        
+  //      RA1 = 0;
+        numByte = 7;
+        do{
+            //пауза для одного бита            
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
+            NOP();NOP();
+            //RA1 ^= 1;
+            bTemp >>= 1;
+            if(RB5)
+                bTemp |= 0x80;
+            else
+                bTemp |= 0x00;            
+            //RA1 = 0;   
+            NOP();                                            
+        }while(numByte--);
+        IOCBF5 = 0; 
+ /*   }
+    }
 
     if (RCIE && RCIF) {
         if (RCSTAbits.OERR) {// || detect.b.readOk) {//ошибка переполнения или принятый пакет еще на анализе
@@ -402,16 +472,31 @@ __interrupt(high_priority) void Inter(void) {
             NOP();
             CREN = 1;
         } else {//читаем байт
-
-            arrToRX[numByteRX] = RCREG;            
-            numByteRX++;
+  * */
+     /*  
+        byte mask = 0x80;
+        do{                        
+            if(bTemp & mask){
+                RA1 = 1;
+            }else{
+                RA1 = 0;
+            }
+            mask >>= 1;
+        }while(mask);
+        RA1 = 0;*/
+        
+   //***         arrToRX[numByteRX] = RCREG;   
+            arrToRX[numByteRX++] = bTemp;
+            //numByteRX++;
             switch (numByteRX) {
                 case 1:
-                {
+                {                    
                     if (arrToRX[0] != 0x55) {//это не первый байт
                         numByteRX = 0;
-                    } else
+                    } else{
                         timeTactRead = 10; //максимальное время на прием всего пакета
+                        detect.b.recData = 1;//идет прием данных
+                    }
                     break;
                 }
                 case 2:
@@ -426,31 +511,32 @@ __interrupt(high_priority) void Inter(void) {
                         break;                    
                     }*/
                 case 6:
-                {
-
-                    allByteRX = 6 + 1 + arrToRX[5]; //общее количество байт в пакете
-                    timeTactRead += arrToRX[5] * 2;
+                {//6 + 1                    
+                    allByteRX = 7 + arrToRX[5]; //общее количество байт в пакете
+                    timeTactRead += arrToRX[5] + 5;
                     break;
                 }
                 default:
                 {
                     if (numByteRX == allByteRX) {//пакет принят полностью
-                        detect.b.readOk = 1;
+                        detect.b.readOk = 1;//теперь надо анализировать
+                        detect.b.recData = 0;//таймер Т2 можно выключить                        
                         numByteRX = 0;
                     }
                 }
             }
-        }   
-        if(!detect.b.readOk)//пока пакет не принят таймер 2 должен работать
-            TMR2IE = 1;
+ //**       }   
+      //  if(detect.b.recData)//идет прием данных
+        //    TMR2IE = 1;
     }
-#ifndef test
+    }
+
     if (TXIE && TXIF) {
         TXREG = *(arrToTX + numByteTX++);
         if (numByteTX == allByteTX)//переданы все байты
             TXIE = 0;
     }
-#endif
+
     return;
 }
 //------------------------------------------------------------------
@@ -480,7 +566,7 @@ void main(void) {
 
 #define CONSTPOR   63// 3    
 #define ALLNUMPARAM 7//количество параметров + 1 которое передается на смартфон
-#define CONSTSIGNALON 40
+#define CONSTSIGNALON 80//40
     
     struct sSensorSW{
         unsigned int sampl;//текущее усредненное значение
@@ -508,8 +594,7 @@ void main(void) {
 
     Initial();
 
-    nWait = 0;
-    //RA2 = 0;
+    nWait = 0;    
     arrToTX[0] = 0x55;
     arrToTX[1] = 0xAA;
     arrToTX[2] = 0x00; //версия
@@ -517,7 +602,6 @@ void main(void) {
 
     //swMove = ON;
     
-
     Turn = 7; //чтоб на верняка
     CPSON = 1;
     LED_OPEN = 1;
@@ -541,7 +625,7 @@ void main(void) {
     
     detect.b.firstOn = 1;
     detect.b.sensSWzero = 1;
-    
+    TMR2IE = 0;
     while (1) {
 
         if (detect.b.readOk) {//если есть принятый пакет, то анализируем его
@@ -776,24 +860,22 @@ void main(void) {
 
         if (flag.b.swOn) {//пришла команта крутить двигатель            
             CPSON = 0; //вЫключаем сенсорные кнопки
-            TMR1ON = 0;           
+            //TMR1ON = 0;           
             //нужен возврат при застревании
             //        if(moveMotor()){//возникла ошибка
             //            flag.b.direct ^= 1;//все в исходную
-            RCIE = 0;
-            RCIF = 0;
+            //RCIE = 0;RCIF = 0;
             
-            RA1 = 0;
             moveMotor();
             
-            RCIE = 1;
+//***            RCIE = 1;
             //        }else{
-            TMR1ON = 1;
+//sleep TMR1ON = 1;
             //отправляем команду изменения статуса замка
-            while (TXIE);
+           while (TXIE)
+               NOP();
             
-            
-            arrToTX[3] = 0x07;
+            /*arrToTX[3] = 0x07;
             arrToTX[5] = 0x05;
             arrToTX[6] = 0x2F; //47 dp id статус замка
             arrToTX[7] = 0x01; //тип данных boolean
@@ -801,7 +883,17 @@ void main(void) {
             arrToTX[9] = 0x01; //один байта данных
             arrToTX[10] = flag.b.direct; //состояния замка пусть определяется направлением                                                      
             arrToTX[11] = checkSum(arrToTX, 11);
-            allByteTX = 12;
+            allByteTX = 12;*/
+            arrToTX[3] = 0xE0; //команда записи во флэш
+            arrToTX[5] = 0x06; //количество байт данных
+            arrToTX[6] = 0x01; //время контролирует модуль            
+            arrToTX[7] = 0x2F; //47 dp id статус замка
+            arrToTX[8] = 0x01; //тип данных boolean
+            arrToTX[9] = 0x00;
+            arrToTX[10] = 0x01; //один байта данных
+            arrToTX[11] = flag.b.direct; //состояния замка пусть определяется направлением                                                      
+            arrToTX[12] = checkSum(arrToTX, 12);
+            allByteTX = 13;
             numByteTX = 0;
             TXIE = 1; //разрешаем передачу
 
@@ -862,7 +954,20 @@ void main(void) {
                     TXIE = 1; //разрешаем передачу
                     break;
                 }
-            }            
+            } 
+            while (TXIE);
+            arrToTX[3] = 0x07;
+            arrToTX[5] = 0x05;
+            arrToTX[6] = 0x2F; //47 dp id статус замка
+            arrToTX[7] = 0x01; //тип данных boolean
+            arrToTX[8] = 0x00;
+            arrToTX[9] = 0x01; //один байта данных
+            arrToTX[10] = flag.b.direct; //состояния замка пусть определяется направлением                                                      
+            arrToTX[11] = checkSum(arrToTX, 11);
+            allByteTX = 12;            
+            numByteTX = 0;
+            TXIE = 1; //разрешаем передачу
+            
             flag.b.swOn = 0;
             detect.b.checkBattery = 1;                        
             commandForMotor = cNoComm;
@@ -882,7 +987,7 @@ void main(void) {
             TMR2IE = 1;
             
             while(!valuePowerADC);
-            RA1 = 1;
+            
             valuePowerADC = 0;
             while(!valuePowerADC);//измеряем два раза на всякий случай
             wADC.w = valuePowerADC;
@@ -919,8 +1024,8 @@ void main(void) {
                 allByteTX = 13; 
                 numByteTX = 0;
                 TXIE = 1;                       
-            }
-            //выключае делитель
+            } 
+            //выключаем делитель
             onBAT = OFF;            
             CPSON = 1;//включаем сенсорные кнопки   
             detect.b.checkBattery = 0;         
@@ -987,21 +1092,19 @@ void main(void) {
             wTemp >>= 1;
                     
             if(!nWait){
-            //сравниваем уровень и мгновенное значение
-            //if(sensSW[i].level > sensSW[i].sampl){
-                if(wTemp > sensSW[i].sampl){
-              //  if ((sensSW[i].level - sensSW[i].sampl) > CONSTSIGNALON)
+            //сравниваем уровень и мгновенное значение            
+                if(wTemp > sensSW[i].sampl){              
                     if ((wTemp - sensSW[i].sampl) > CONSTSIGNALON)
                     {
                         if(i){                        
                             //открыть, а при инверсии закрыть
-                            LED_OPEN = 1 ^ flag.b.inverMov;                        
-                            LED_CLOSE = 0 ^ flag.b.inverMov;
+                     //       LED_OPEN = 1 ^ flag.b.inverMov;                        
+                     //       LED_CLOSE = 0 ^ flag.b.inverMov;
                             flag.b.direct = 1 ^ flag.b.inverMov;                        
                         }else{     
                             //закрыть, а при инверсии открыть                        
-                            LED_OPEN = 0 ^ flag.b.inverMov;
-                            LED_CLOSE = 1 ^ flag.b.inverMov;
+                     //       LED_OPEN = 0 ^ flag.b.inverMov;
+                     //       LED_CLOSE = 1 ^ flag.b.inverMov;
                             flag.b.direct = 0 ^ flag.b.inverMov;                        
                         }                        
                         flag.b.swOn = 1; 
@@ -1013,8 +1116,38 @@ void main(void) {
                     }          
                 }             
             }                      
-       //     if(!detect.b.readOk)//нет пакетов для обработки
-         //       SLEEP();            
-        }        
+       //     if(!detect.b.readOk)//нет пакетов для обработки                
+        }    
+        
+        if(!detect.b.recData && !nWait)
+            TMR2IE = 0;
+        
+        if(TMR2IE || TXIE || IOCAF5)
+            continue;
+        
+        IOCBN5 = 1;  
+        TMR1L = 0;
+        TMR1H = 0;
+        TMR1ON = 1;
+        SWDTEN = 1;
+        SLEEP();  
+        SWDTEN = 0;
+        if(!TMR2IE){
+            TMR1ON = 0;                    
+            dl[numCh] = (unsigned int)(TMR1H << 8) + TMR1L;                    
+            fDl[numCh] = 1;                
+            CPSCON1 = setCh[numCh]; //устанавливаем канал               
+            if (numCh) {       
+                        /*wTemp = dl[numCh];
+                          do{  
+                           RA1 = 1;
+                          wTemp -= 6;
+                          RA1 = 0;
+                        }while(wTemp > 7);   */      
+                numCh = 0;                        
+            } else {
+                numCh = 1;
+            }                    
+        }
     }
 }
