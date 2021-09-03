@@ -34,16 +34,20 @@
 #define onBAT_DIR  TRISC6//pin 8
 #define onBAT      RC6
 
-#define CONSTPOROG 47//для датчика 0,2 Ом, получаем при токе 0,5 А напряжение 0,1 В,
-//тогда для АЦП 10 разрядов и опорном напряжении 2,048 В это код 0,1/2,048*1024 = 50
+#define CONSTPOROG 72//для датчика 0,22 Ом, получаем при токе 0,5 А напряжение 0,11 В,
+//тогда для АЦП 10 разрядов и опорном напряжении 2,048 В это код 0,11/2,048*(1024 -1) = 55
+//тогда для АЦП 10 разрядов и напряжении питания 3 В это код 0,11/3*(1024-1) = 55
 
 //CPS1(CPS4) RC0 pin 16, CPS2(CPS5) RC1 pin 15
 const unsigned char setCh[2] ={4, 5};
+byte intervalTimeADC;
+
 //для КИХ фильтра, частота среза 8 Гц, частота дискретизации 210 Гц
 //const 
 
 #define stDevTurn       1
 #define stRevers        2
+#define stDevTongue     3
 
 #define errRevers       1
 #define errHalf1        2
@@ -69,7 +73,7 @@ byte Turn;
 byte Status;
 int numHighCurrent;
 
-#define CONSTBIG 5
+#define CONSTBIG 21
 
 byte numByteRX;//номер принимаемого байта
 byte allByteRX;//количество байт, которое должно быть в принятом пакете

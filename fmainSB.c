@@ -7,7 +7,7 @@
  * контроль заряда аккумулятора
  */
 #include <pic.h>
-#include <proc\pic16f1829.h>
+#include <proc\pic16f1828.h>
 #include "fdataSB.h"
 
 #define SMART
@@ -19,16 +19,16 @@
 #pragma config WDTE = SWDTEN, PWRTE = OFF, BOREN = OFF, MCLRE = ON, FCMEN = OFF, LVP = OFF, FOSC = INTOSC, STVREN = OFF
 //прототипы функций
 void Initial(void);
-byte checkSum(byte *p, byte size);
+byte checkSum(byte size);
 byte moveMotor();
 
 //------------------------------------------------------------------
 //расчет контрольной суммм 
 
-byte checkSum(byte *p, byte size) {
+byte checkSum(byte size) {
     byte sum = 0;
     for (byte i = 0; i < size; i++) {
-        sum += *p++;
+        sum += arrToTX[i];
     }
     return sum;
 }
@@ -40,12 +40,12 @@ byte moveMotor() {
     nHalfTurn = 0;
     
     //настраиваем канал АЦП
-    CHS0 = 1; CHS1 = 1; CHS2 = 0;
-    ADON = 1;
-    
+    ADCON0 = 0b1101;//канал AN3, АЦП включаем
+    //ADCON0 = 0b0101;//канал AN1, АЦП включаем
     LED_CLOSE = 0;            
     LED_OPEN = 0;      
     
+    //определяем направление вращения мотора
     byte bTemp = flag.b.direct;
     bTemp ^= flag.b.inverMov;
     bTemp &= 0b1;
@@ -61,7 +61,9 @@ byte moveMotor() {
     flag.b.motorMove = 1; //статус мотор запущен
     stat = stDevTurn; //статус прямой ход
     numHighCurrent = 0;
-    nWait = 18;//15;
+    intervalTimeADC = 0xFF;//0xD0;
+    
+    nWait = 7;
     
     TMR2IE = 1;
     
@@ -70,8 +72,9 @@ byte moveMotor() {
     IOCIE = 1;
 
     while (1) {
-        if (!flag.b.motorMove) {
-
+        //RA0 ^= 1;
+        if (!flag.b.motorMove) {//анализируем когда моторо остановлен
+            GIE = 0;
             if (stat == stRevers) {//остановка при обратном ходе
                 if (flag.b.currBig) {//с превышением тока
                     Error = errRevers; //застрял при возврате
@@ -88,25 +91,10 @@ byte moveMotor() {
                 break;
             }
 
-            if (stat == stDevTurn) {
-                //остановка при превышении пройдет, когда превышение будет зафиксировано долго
-                if (flag.b.currBig) {//с превышением тока
-                    if (flag.b.reperPos) {//позиция на репере
-                        if (nHalfTurn < Turn) {//недостаточное количество полуоборотов
-                            Error = errHalf1; //застрял на репере, не выполнив нужное количество полуоборотов    
-
-                        } else {//достаточное количество полуоборотов
-                            Error = errHalf2; //застрял на репере, выполнено нужное количество полуоборотов                              
-                        }
-                        break;
-                    } else {//позиция НЕ на репере                               
-                        if (nHalfTurn < Turn) {//недостаточное количество полуоборотов
-                            Error = errHalf3; //застрял НЕ на репере, не выполнено нужное количество полуоборотов                                      
-                            
-                            //break; //выходим из цикла
-                        }
-                        swMove = OFF;
-                        //меняем направление вращения мотора;                        
+            if (stat == stDevTongue) {//держим язычок
+                CCP1CON = 0x00;//выключаем ШИМ
+                T4CON = 0x00;//выключаем таймер 4  
+                //меняем направление вращения мотора;                        
                         if(bTemp){//реверс
                             setbit(PORTC, bIN2);
                             clrbit(PORTC, bIN1);
@@ -119,7 +107,45 @@ byte moveMotor() {
                         nHalfTurn = 0;
                         nWait = 5;
                         stat = stRevers;
-                        swMove = ON;
+                        intervalTimeADC = 0xFF;// 0xD0;
+                     //   swMove = ON;
+                        LATC7 = 1;
+                        LATCbits.LATC7 = 1;
+            }
+            
+            if (stat == stDevTurn) {//прямой ход
+                //остановка при превышении пройдет, когда превышение будет зафиксировано долго
+                if (flag.b.currBig) {//с превышением тока
+                    if (flag.b.reperPos) {//позиция на репере
+                        if (nHalfTurn < Turn) {//недостаточное количество полуоборотов
+                            Error = errHalf1; //застрял на репере, не выполнив нужное количество полуоборотов    
+
+                        } else {//достаточное количество полуоборотов
+                            Error = 0;//errHalf2; 
+                            //застрял на репере, выполнено нужное количество полуоборотов                              
+                        }
+                        break;
+                    } else {//позиция НЕ на репере                               
+                        if (nHalfTurn < Turn) {//недостаточное количество полуоборотов
+                            Error = errHalf3; //застрял НЕ на репере, не выполнено нужное количество полуоборотов                                      
+                            
+                            //break; //выходим из цикла
+                        }
+  //                      swMove = OFF;
+                        stat = stDevTongue;
+                                                
+                        PR4 = 9;
+                        CCP1CON = 0x0C;
+                        CCPR1L = 5;
+                        C1TSEL0 = 1;//таймер № 4
+                        C1TSEL1 = 0;
+                        T4CON = 0x04;
+                        intervalTimeADC = 0x00;
+                        nWait = 100;                                                
+              //          swMove = ON;
+                        LATC7 = 1;
+                        LATCbits.LATC7 = 1;
+                        flag.b.motorMove = 1; //запускаем мотор;
                     }
                     flag.b.currBig = 0;
                 } else {//превышения по току нет, сработал оптический датчик
@@ -134,10 +160,12 @@ byte moveMotor() {
                     break;
                 }
             }
+            GIE = 1;
         }
         //где-то выключается, приходится дублировать
         //swMove = ON; //включаем драйвер и оптческий датчик
     }
+    GIE = 1;
     
     TMR2IE = 0;
     TMR2 = 0;
@@ -196,14 +224,12 @@ void Initial(void) {
     LED_CLOSE_DIR = OUTPUT;
     LATAbits.LATA0 = 0;
     LATAbits.LATA1 = 0;
-    ANSELAbits.ANSA0 = 0;
-    ANSELAbits.ANSA1 = 0;
-//    TRISA0 = OUTPUT;
-    TRISA1 = OUTPUT;
-    TRISA0 = INPUT;
-//    RA0 = 0;
-    RA1 = 0;RA1 = 1;RA1 = 0;RA1 = 1;RA1 = 0;RA1 = 1;RA1 = 0;RA1 = 1;RA1 = 0;
+    ANSELAbits.ANSA0 = 0;   
+    TRISA0 = OUTPUT;
     
+    TRISA1 = OUTPUT;
+    ANSELAbits.ANSA1 = 0;
+ 
     LATCbits.LATC5 = 0;
     IN1_DIR = OUTPUT;
 
@@ -270,7 +296,7 @@ void Initial(void) {
     WDTCON |= 0b00001000;//00100 = 1:512 (Interval 16 ms nominal)
     //WDTCON |= 0b00001110;//00111 = 1:4096 (Interval 128 ms nominal)
 
-    T2CON = 0x07; //вкл на 64//0x7F;//включаем таймер и делители на 64 и на 16
+    T2CON = 0x07; //вкл на 64   //0x7F;//включаем таймер и делители на 64 и на 16
     //sleep TMR2IE = 1;
 
     //UART    
@@ -299,13 +325,17 @@ void Initial(void) {
     ADCON0 = 0;
     ADON = 1;
     ADFM = 1; //равнение вправо   
-    ADCON1bits.ADCS = 0b100; //Fosc/4
+    //ADCON1bits.ADCS = 0b100; //Fosc/4
+    ADCON1bits.ADCS0 = 1;ADCON1bits.ADCS1 = 0;ADCON1bits.ADCS2 = 1;//Fosc/16 4us
     //RA4 pin3 AN3 канал датчика тока для мотора
-    FVREN = 1;//вкл опорное напряжение
+    /*FVREN = 1;//вкл опорное напряжение
     ADFVR0 = 0;ADFVR1 = 1;//2.048 V
     ADPREF0 = 1;ADPREF0 = 1;//используем опорное напряжение
+     * */
     ADIE = 1;
-    
+    /*TRISA4 = INPUT;
+    T1GSEL = 1;
+    ANSA4 = 1;*/
     WPUA4 = 0; 
     //RС3 pin7 AN7 канал измерения заряда аккумулятора
     WPUC3 = 0;
@@ -353,43 +383,54 @@ __interrupt(high_priority) void Inter(void) {
         //wValADC.b[0] = ADRESL;
         *p++ = ADRESL;
         *p = ADRESH;
+        wTemp = (word)(ADRESH << 8) + ADRESL;
         if(detect.b.checkBattery){
             valuePowerADC = wTemp;//wValADC.num;
-        }else{
+        }else{//анализируем сигнал с датчика тока
+            RA1 ^= 1;
             //if (wValADC.num > CONSTPOROG) {//держим в крайнем положении в течении заданного интервала            
-            if (wTemp > CONSTPOROG) {//держим в крайнем положении в течении заданного интервала            
-                numHighCurrent++;            
+            if (wTemp > CONSTPOROG) {//если есть превышение сигнала с датчика ток,
+                RA0 ^= 1;                    //то увеличиваем счетчик превышения тока
+                numHighCurrent += 7;                    
+                intervalTimeADC = 0xFF;
             } else {
+                
                 if (numHighCurrent)
-                    numHighCurrent--;
+                    numHighCurrent--;                
             }
-            if (numHighCurrent == CONSTBIG) {//интервал закончился - останавливаем мотор
-             //   IN1 = 0;IN2 = 0;
+            if (numHighCurrent >= CONSTBIG) {//количество превышений досигла максимума
+             //   IN1 = 0;IN2 = 0;                
                 flag.b.motorMove = 0;
                 flag.b.currBig = 1;
-                numHighCurrent = 0;
+                numHighCurrent = 0;               
             }
         }
         ADIF = 0;        
     }
 
     if (TMR2IE && TMR2IF) {
-        
+       
         if (nWait) {
             nWait--;            
         }else{//по завершению временной паузы разрешаем опрос АЦП 
-            
-            if(detect.b.checkBattery)// измеряем заряд батареи
-                if(!ADCON0bits.GO){
-                    ADCON0bits.GO = 1;                     
-                }
-            if(flag.b.motorMove){//двигетель крутится 
+            if(stat == stDevTongue){
+                flag.b.motorMove = 0;
+            }else{
+                ADIF = 0;
+                if(detect.b.checkBattery)// измеряем заряд батареи
+                    if(!ADCON0bits.GO){
+                        ADCON0bits.GO = 1;                     
+                    }
+                if(flag.b.motorMove){//двигатель крутится                 
+                    if(!ADCON0bits.GO)
+                        ADCON0bits.GO = 1;
+                    TMR2 = intervalTimeADC;//косвенным образом устанавливаем частоту опроса АЦП
+                 
+                    //мигаем диодами
+                    nWaitS++; 
+                    //выключил проблема с swMode RC7
                 
-                if(!ADCON0bits.GO)
-                    ADCON0bits.GO = 1;
-                //мигаем диодами
-                nWaitS++;            
-                if(nWaitS & 0b10000){
+            /*    if(nWaitS & 0b10000){
                     if(flag.b.direct){                                        
                         setbit(PORTC, bLED_OPEN);
                     }else{                    
@@ -398,9 +439,10 @@ __interrupt(high_priority) void Inter(void) {
                 }else{
                     clrbit(PORTC, bLED_OPEN);
                     clrbit(PORTA, bLED_CLOSE);                
+                } */               
                 }                
-            }                
-        }           
+            }           
+        }
      
         if (timeTactRead) {
             timeTactRead--;
@@ -419,7 +461,9 @@ __interrupt(high_priority) void Inter(void) {
     if(IOCIE){
     //прерывание по оптическому каналу
     if(IOCAF5) {
+       
         if (!nWait) {
+            
             nHalfTurn++;
             
             if (  ((nHalfTurn == 1) && (stat == stRevers)) || //останавливаем мотор при реверсе на репере
@@ -531,10 +575,15 @@ __interrupt(high_priority) void Inter(void) {
     }
     }
 
-    if (TXIE && TXIF) {
-        TXREG = *(arrToTX + numByteTX++);
-        if (numByteTX == allByteTX)//переданы все байты
-            TXIE = 0;
+    if (TXIE && TXIF) {        
+        if(numByteTX != allByteTX){//переданы все байты
+            TXREG = arrToTX[numByteTX];
+            numByteTX++;
+        }else{
+            if(TRMT)//есть проблема при передачи последних байт, поэтому вырубаем TXIE
+                //только когда передан последний байт
+                TXIE = 0;
+        }                       
     }
 
     return;
@@ -602,7 +651,7 @@ void main(void) {
 
     //swMove = ON;
     
-    Turn = 7; //чтоб на верняка
+    Turn = 7; //чтоб наверняка
     CPSON = 1;
     LED_OPEN = 1;
     LED_CLOSE = 0;
@@ -632,7 +681,7 @@ void main(void) {
             //не плохо бы проверить контрольную сумму у принятого пакета
 
             while (TXIE); //ждем когда завершится предыдущая передача
-
+arrToTX[4] = 0x00;
             switch (arrToRX[3]) {//байт № 3 - команда  
                 case 0x00:
                 {//ПУЛЬС
@@ -660,7 +709,7 @@ void main(void) {
                     arrToTX[9] = 0x01;
                     arrToTX[10] = 0x00;
                     arrToTX[11] = 0x00;
-                    arrToTX[12] = checkSum(arrToTX, 12);
+                    arrToTX[12] = checkSum(12);
                     allByteTX = 13;
                     break;
                 }
@@ -677,7 +726,7 @@ void main(void) {
                     arrToTX[11] = 0x72;
                     arrToTX[12] = 0x6C;
                     arrToTX[13] = 0x68;
-                    arrToTX[14] = checkSum(arrToTX, 14);
+                    arrToTX[14] = checkSum(14);
                     allByteTX = 15;
                     break;
                 }
@@ -712,7 +761,7 @@ void main(void) {
                                 arrToTX[11] = 0; 
                                 arrToTX[12] = 0; 
                                 arrToTX[13] = 17; 
-                                arrToTX[14] = checkSum(arrToTX, 14);
+                                arrToTX[14] = checkSum(14);
                                 allByteTX = 15;
                     numParam = ALLNUMPARAM;
                     break;
@@ -731,7 +780,7 @@ void main(void) {
                                 arrToTX[8] = 0x00;
                                 arrToTX[9] = 0x01; //количество - один байт
                                 arrToTX[10] = 0x07; //русский язык                                
-                                arrToTX[11] = checkSum(arrToTX, 11);
+                                arrToTX[11] = checkSum(11);
                                 allByteTX = 12;
                                 break;
                             }
@@ -744,7 +793,7 @@ void main(void) {
                                 arrToTX[8] = 0x00;
                                 arrToTX[9] = 0x01; //один байта данных
                                 arrToTX[10] = flag.b.direct; //состояния замка пусть определяется направлением                                                      
-                                arrToTX[11] = checkSum(arrToTX, 11);
+                                arrToTX[11] = checkSum(11);
                                 allByteTX = 12;
                                 break;
                             }
@@ -757,7 +806,7 @@ void main(void) {
                                 arrToTX[8] = 0x00;
                                 arrToTX[9] = 0x01; //один байта данных
                                 arrToTX[10] = flag.b.inverMov; //состояния замка пусть определяется направлением                                                      
-                                arrToTX[11] = checkSum(arrToTX, 11);
+                                arrToTX[11] = checkSum(11);
                                 allByteTX = 12;
                                 break;
                             }
@@ -771,7 +820,7 @@ void main(void) {
                     arrToTX[9] = 0x01; //количество - один байт
                     arrToTX[10] = 2;//myLock.prop.levelPower; //значение 0x00: высокий уровень заряда батареи, 
                     //0x01: средняя батарея, 0x02: низкий уровень заряда батареи, 0x03: батарея разряжена
-                    arrToTX[11] = checkSum(arrToTX, 11);
+                    arrToTX[11] = checkSum(11);
                     allByteTX = 12;
                                 
                                 break;
@@ -791,7 +840,6 @@ void main(void) {
                     switch (arrToRX[6]) {
                         case 0x06:
                         {//команда открыть замок по Bluetooth, но для закрытия исползуется почему-то другая pdid46
-
                             arrToTX[5] = 0x06;
                             arrToTX[6] = 0x06;
                             arrToTX[7] = 0x00; //тип данных raw
@@ -806,7 +854,7 @@ void main(void) {
                             arrToTX[10] = flag.b.direct;
                             idUser = arrToRX[11]; //идентификатор пользователя
                             arrToTX[11] = idUser;
-                            arrToTX[12] = checkSum(arrToTX, 12);
+                            arrToTX[12] = checkSum(12);
                             allByteTX = 13;
                             break;
                         }
@@ -823,7 +871,7 @@ void main(void) {
                             flag.b.direct = 0; //0 - закрыть замок
                             detect.b.checkBattery = 0;
                             
-                            arrToTX[11] = checkSum(arrToTX, 11);
+                            arrToTX[11] = checkSum(11);
                             allByteTX = 12;
                             break;
                         }
@@ -836,7 +884,7 @@ void main(void) {
                             arrToTX[9] = 0x01; //количество - один байт                                                        
                             flag.b.inverMov = arrToRX[10];
                             arrToTX[10] = flag.b.inverMov;
-                            arrToTX[11] = checkSum(arrToTX, 11);
+                            arrToTX[11] = checkSum(11);                            
                             allByteTX = 12;
                             break;
                         }
@@ -851,8 +899,10 @@ void main(void) {
                     break;
                 }
             }
+            
             if (allByteTX) {//есть байты требующие передачу
                 numByteTX = 0;
+                
                 TXIE = 1; //разрешаем передачу
             }                       
             detect.b.readOk = 0;
@@ -892,7 +942,7 @@ void main(void) {
             arrToTX[9] = 0x00;
             arrToTX[10] = 0x01; //один байта данных
             arrToTX[11] = flag.b.direct; //состояния замка пусть определяется направлением                                                      
-            arrToTX[12] = checkSum(arrToTX, 12);
+            arrToTX[12] = checkSum(12);
             allByteTX = 13;
             numByteTX = 0;
             TXIE = 1; //разрешаем передачу
@@ -912,7 +962,7 @@ void main(void) {
                     arrToTX[12] = 0;
                     arrToTX[13] = 0;
                     arrToTX[14] = idUser;
-                    arrToTX[15] = checkSum(arrToTX, 15);
+                    arrToTX[15] = checkSum(15);
                     allByteTX = 16;
                     numByteTX = 0;
                     TXIE = 1; //разрешаем передачу
@@ -930,7 +980,7 @@ void main(void) {
                     arrToTX[9] = 0x00;
                     arrToTX[10] = 0x01; //количество - 1 байта
                     arrToTX[11] = 0x09;//открыть сенсорной кнопкой
-                    arrToTX[12] = checkSum(arrToTX, 12);
+                    arrToTX[12] = checkSum(12);
                     allByteTX = 13;
                     numByteTX = 0;
                     TXIE = 1; //разрешаем передачу
@@ -948,7 +998,7 @@ void main(void) {
                     arrToTX[9] = 0x00;
                     arrToTX[10] = 0x01; //количество - 1 байта
                     arrToTX[11] = 0x0A;//закрыть сенсорной кнопкой
-                    arrToTX[12] = checkSum(arrToTX, 12);
+                    arrToTX[12] = checkSum(12);
                     allByteTX = 13;
                     numByteTX = 0;
                     TXIE = 1; //разрешаем передачу
@@ -963,7 +1013,7 @@ void main(void) {
             arrToTX[8] = 0x00;
             arrToTX[9] = 0x01; //один байта данных
             arrToTX[10] = flag.b.direct; //состояния замка пусть определяется направлением                                                      
-            arrToTX[11] = checkSum(arrToTX, 11);
+            arrToTX[11] = checkSum(11);
             allByteTX = 12;            
             numByteTX = 0;
             TXIE = 1; //разрешаем передачу
@@ -1020,7 +1070,7 @@ void main(void) {
                 arrToTX[9] = 0x00;
                 arrToTX[10] = 0x01; //количество - один байт
                 arrToTX[11] = myLock.prop.levelPower; 
-                arrToTX[12] = checkSum(arrToTX, 12);
+                arrToTX[12] = checkSum(12);
                 allByteTX = 13; 
                 numByteTX = 0;
                 TXIE = 1;                       
@@ -1090,7 +1140,8 @@ void main(void) {
             
             wTemp = sensSW[i].level;
             wTemp >>= 1;
-                    
+            
+            /*        отключим клавиатуру
             if(!nWait){
             //сравниваем уровень и мгновенное значение            
                 if(wTemp > sensSW[i].sampl){              
@@ -1115,7 +1166,8 @@ void main(void) {
                             commandForMotor = cSensSWClose;
                     }          
                 }             
-            }                      
+            }      
+            */
        //     if(!detect.b.readOk)//нет пакетов для обработки                
         }    
         
