@@ -70,11 +70,12 @@ byte moveMotor() {
     IOCAF5 = 0;
     IOCIF = 0;
     IOCIE = 1;
-
-    while (1) {
-        //RA0 ^= 1;
+TXIE = 0;
+    while (1) {        
         if (!flag.b.motorMove) {//анализируем когда моторо остановлен
-            GIE = 0;
+            while(numByteRX);
+            while(TXIE);
+            GIE = 0;            
             if (stat == stRevers) {//остановка при обратном ходе
                 if (flag.b.currBig) {//с превышением тока
                     Error = errRevers; //застрял при возврате
@@ -160,13 +161,13 @@ byte moveMotor() {
                     break;
                 }
             }
-            GIE = 1;
+            GIE = 1;            
         }
         //где-то выключается, приходится дублировать
         //swMove = ON; //включаем драйвер и оптческий датчик
     }
-    GIE = 1;
-    
+    GIE = 1;    
+
     TMR2IE = 0;
     TMR2 = 0;
     nWait = 2;
@@ -208,14 +209,14 @@ void Initial(void) {
             NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
             NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
             //NOP();NOP();
-            RA1 ^= 1;
+            
             bTemp >>= 1;
             if(RB5)
                 bTemp |= 0x80;
             else
                 bTemp |= 0x00;
             
-            //RA1 = 0;   
+               
             NOP();                                            
         }while(numByte--);
         */
@@ -386,11 +387,10 @@ __interrupt(high_priority) void Inter(void) {
         wTemp = (word)(ADRESH << 8) + ADRESL;
         if(detect.b.checkBattery){
             valuePowerADC = wTemp;//wValADC.num;
-        }else{//анализируем сигнал с датчика тока
-            RA1 ^= 1;
+        }else{//анализируем сигнал с датчика тока            
             //if (wValADC.num > CONSTPOROG) {//держим в крайнем положении в течении заданного интервала            
             if (wTemp > CONSTPOROG) {//если есть превышение сигнала с датчика ток,
-                RA0 ^= 1;                    //то увеличиваем счетчик превышения тока
+                                    //то увеличиваем счетчик превышения тока
                 numHighCurrent += 7;                    
                 intervalTimeADC = 0xFF;
             } else {
@@ -443,7 +443,8 @@ __interrupt(high_priority) void Inter(void) {
                 }                
             }           
         }
-     
+    if(!flag.b.motorMove){
+
         if (timeTactRead) {
             timeTactRead--;
         } else//время вышло на прием пакета
@@ -452,10 +453,12 @@ __interrupt(high_priority) void Inter(void) {
                 detect.b.recData = 0;//прием данных завершен
                 IOCBN5 = 1;//разрешаем прерывание UART из sleep
             }
-     
+    }    
         //if((!timePower++) && (!flag.b.swOn))
-        //    detect.b.checkBattery = 1;//разрешить проверку заряда аккумулятора
-   //     RA1 ^= 1;
+        //    detect.b.checkBattery = 1;//разрешить проверку заряда аккумулятора 
+        
+        if(synNum)
+            synNum--;
         TMR2IF = 0;
     }
     if(IOCIE){
@@ -481,10 +484,8 @@ __interrupt(high_priority) void Inter(void) {
         IOCAF5 = 0;
         IOCIF = 0;
     }
-    if(IOCBF5){
-    //   RA1 = 1;
-        TMR2IE = 1;                        
-  //      RA1 = 0;
+    if(IOCBF5){    
+        TMR2IE = 1;                          
         numByte = 7;
         do{
             //пауза для одного бита            
@@ -496,14 +497,12 @@ __interrupt(high_priority) void Inter(void) {
             NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
             NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
             NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
-            NOP();NOP();
-            //RA1 ^= 1;
+            NOP();NOP();            
             bTemp >>= 1;
             if(RB5)
                 bTemp |= 0x80;
             else
-                bTemp |= 0x00;            
-            //RA1 = 0;   
+                bTemp |= 0x00;                           
             NOP();                                            
         }while(numByte--);
         IOCBF5 = 0; 
@@ -562,17 +561,39 @@ __interrupt(high_priority) void Inter(void) {
                 }
                 default:
                 {
-                    if (numByteRX == allByteRX) {//пакет принят полностью
-                        detect.b.readOk = 1;//теперь надо анализировать
+                    if (numByteRX == allByteRX) {//пакет принят полностью                        
                         detect.b.recData = 0;//таймер Т2 можно выключить                        
                         numByteRX = 0;
+                      
+              
+//------------------               
+                        if (!arrToRX[3]) {//байт № 3 - команда  
+                        //ПУЛЬС
+                            arrToTX[0] = 0x55;arrToTX[1] = 0xAA;    
+                            arrToTX[2] = 0x00;arrToTX[3] = 0x00;arrToTX[4] = 0x00;
+                            arrToTX[5] = 0x01;
+                            if (detect.b.firstOn) {//первое включение
+                                arrToTX[6] = 0x00;
+                                arrToTX[7] = 0x00;
+                                detect.b.firstOn = 0;
+                            } else {
+                                arrToTX[6] = 0x01;
+                                arrToTX[7] = 0x01;
+                            }
+                            allByteTX = 8;numByteTX = 0;
+                            TXIE = 1; //разрешаем передачу
+                            detect.b.readOk = 0;                            
+                            synNum = 250;
+                        }else
+                            detect.b.readOk = 1;//теперь надо анализировать
+//--------------------
+                    
                     }
                 }
-            }
- //**       }   
+            }   
       //  if(detect.b.recData)//идет прием данных
         //    TMR2IE = 1;
-    }
+        }
     }
 
     if (TXIE && TXIF) {        
@@ -675,6 +696,8 @@ void main(void) {
     detect.b.firstOn = 1;
     detect.b.sensSWzero = 1;
     TMR2IE = 0;
+    detect.b.checkBattery = 1;
+    
     while (1) {
 
         if (detect.b.readOk) {//если есть принятый пакет, то анализируем его
@@ -683,7 +706,7 @@ void main(void) {
             while (TXIE); //ждем когда завершится предыдущая передача
 arrToTX[4] = 0x00;
             switch (arrToRX[3]) {//байт № 3 - команда  
-                case 0x00:
+   /*             case 0x00:
                 {//ПУЛЬС
                     arrToTX[3] = 0x00;
                     arrToTX[5] = 0x01;
@@ -697,7 +720,7 @@ arrToTX[4] = 0x00;
                     }
                     allByteTX = 8;
                     break;
-                }
+                }*/
                 case 0xE8:
                 {//запрос версии контроллера
                     arrToTX[3] = 0xE8;
@@ -818,8 +841,10 @@ arrToTX[4] = 0x00;
                     arrToTX[7] = 0x04; //перечисляемый тип данных
                     arrToTX[8] = 0x00;
                     arrToTX[9] = 0x01; //количество - один байт
-                    arrToTX[10] = 2;//myLock.prop.levelPower; //значение 0x00: высокий уровень заряда батареи, 
-                    //0x01: средняя батарея, 0x02: низкий уровень заряда батареи, 0x03: батарея разряжена
+                    arrToTX[10] = myLock.prop.levelPower; 
+                    //значение 0x00: высокий уровень заряда батареи, 
+                    //0x01: средняя батарея, 0x02: низкий уровень заряда батареи,
+                    //0x03: батарея разряжена
                     arrToTX[11] = checkSum(11);
                     allByteTX = 12;
                                 
@@ -830,8 +855,10 @@ arrToTX[4] = 0x00;
                             }
                         }
                         numParam--;
-                    } else
+                    } else{
                         allByteTX = 0;
+                    //    flag.b.answer = 1;//подтверждение получено
+                    }
                     break;
                 }
                 case 0x06:
@@ -915,26 +942,35 @@ arrToTX[4] = 0x00;
             //        if(moveMotor()){//возникла ошибка
             //            flag.b.direct ^= 1;//все в исходную
             //RCIE = 0;RCIF = 0;
-            
+            while (TXIE);
             moveMotor();
             
 //***            RCIE = 1;
             //        }else{
 //sleep TMR1ON = 1;
             //отправляем команду изменения статуса замка
+           TMR2IE = 1;
+           while(synNum < 5);
            while (TXIE)
-               NOP();
+               NOP();          
             
-            /*arrToTX[3] = 0x07;
+            arrToTX[0] = 0x55;
+            arrToTX[1] = 0xAA;
+            arrToTX[2] = 0x00; //версия
+            arrToTX[3] = 0x07;
+            arrToTX[4] = 0x00;
             arrToTX[5] = 0x05;
             arrToTX[6] = 0x2F; //47 dp id статус замка
             arrToTX[7] = 0x01; //тип данных boolean
             arrToTX[8] = 0x00;
             arrToTX[9] = 0x01; //один байта данных
             arrToTX[10] = flag.b.direct; //состояния замка пусть определяется направлением                                                      
-            arrToTX[11] = checkSum(arrToTX, 11);
-            allByteTX = 12;*/
-            arrToTX[3] = 0xE0; //команда записи во флэш
+            arrToTX[11] = checkSum(11);
+            allByteTX = 12;            
+            numByteTX = 0;
+            TXIE = 1; //разрешаем передачу
+   /*         
+          arrToTX[3] = 0xE0; //команда записи во флэш
             arrToTX[5] = 0x06; //количество байт данных
             arrToTX[6] = 0x01; //время контролирует модуль            
             arrToTX[7] = 0x2F; //47 dp id статус замка
@@ -946,7 +982,12 @@ arrToTX[4] = 0x00;
             allByteTX = 13;
             numByteTX = 0;
             TXIE = 1; //разрешаем передачу
-
+            
+            TMR2IE = 1;
+            nWait = 3;                        
+            while(nWait);//ждем завершения паузы
+            */
+ /*           
             switch (commandForMotor){
                 case cBLEOpen :{//замок открыт по  Bluetooth            
                     //отправляем команду записать в журнал событие "замок открыт"
@@ -1005,8 +1046,26 @@ arrToTX[4] = 0x00;
                     break;
                 }
             } 
-            while (TXIE);
+    */
+//после вращения двигателя обязательно отправляем информацию о статусе замка и 
+//убеждаемся, что смартфон получил             
+            //flag.b.answer = 0;
+            flag.b.swOn = 0;
+   //         detect.b.checkBattery = 1;                        
+            commandForMotor = cNoComm;
+        }
+     /*   
+        if(!flag.b.answer) {   
+            flag.b.answer = 1;
+            while (TXIE);//статус замка
+            TMR2IE = 1;
+            nWait = 5;                        
+            while(nWait);//ждем завершения паузы
+            arrToTX[0] = 0x55;
+            arrToTX[1] = 0xAA;
+            arrToTX[2] = 0x00; //версия
             arrToTX[3] = 0x07;
+            arrToTX[4] = 0x00;
             arrToTX[5] = 0x05;
             arrToTX[6] = 0x2F; //47 dp id статус замка
             arrToTX[7] = 0x01; //тип данных boolean
@@ -1017,11 +1076,8 @@ arrToTX[4] = 0x00;
             allByteTX = 12;            
             numByteTX = 0;
             TXIE = 1; //разрешаем передачу
-            
-            flag.b.swOn = 0;
-            detect.b.checkBattery = 1;                        
-            commandForMotor = cNoComm;
-        }       
+        }*/
+        
         
         //для теста аккумулятора
         if(detect.b.checkBattery){
@@ -1174,7 +1230,7 @@ arrToTX[4] = 0x00;
         if(!detect.b.recData && !nWait)
             TMR2IE = 0;
         
-        if(TMR2IE || TXIE || IOCAF5)
+        if(TMR2IE || TXIE || IOCAF5)// || flag.b.answer)
             continue;
         
         IOCBN5 = 1;  

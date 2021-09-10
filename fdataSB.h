@@ -84,6 +84,7 @@ byte arrToTX[20];
 volatile byte allByteTX;//количество байта, которое необходимо передать
 volatile byte numByteTX;//номер передаваемого байта
 byte numParam;//количество параметров, требующих отправки на смартфон
+byte synNum;//количество тактов после прихода запроса ПУЛЬС
 
 #define CONSTHEIGHT 396//3,6 В  0x0100+  35d<<2
 #define CONSTMEDIUM 372//3,4 В  0x0100+  29d<<2
@@ -104,7 +105,7 @@ volatile union{
     struct flag1
     {
         unsigned swOn: 1;//кнопка нажата
-        unsigned ready : 1;//данные актуальны
+        unsigned answer : 1;//подтверждение получения данных
         unsigned inverMov: 1;//инверсия вращения
         unsigned motorMove: 1;//состояние мотора 1 - работает, 0 - не работает
         unsigned direct: 1;//направление вращения мотора 0 - закрыть, 1 - открыть        
@@ -123,6 +124,6 @@ volatile union{
         unsigned recData: 1;//идет прием данных
         unsigned firstOn : 1;//первый ответ на ПУЛЬС
         unsigned checkBattery : 1;//проверить заряд аккумулятора
-        unsigned sensSWzero : 1;//обнулиь сенсорную клавиатуру
+        unsigned sensSWzero : 1;//обнулиь сенсорную клавиатуру      
     }b;
 }detect;
