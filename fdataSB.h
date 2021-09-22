@@ -85,6 +85,7 @@ volatile byte allByteTX;//количество байта, которое необходимо передать
 volatile byte numByteTX;//номер передаваемого байта
 byte numParam;//количество параметров, требующих отправки на смартфон
 volatile byte synNum;//количество тактов после прихода запроса ПУЛЬС
+volatile byte sessionNum;//количество сигналов ПУЛЬС до окончания текущей сессии связи замка с устройством по блютузу
 
 #define CONSTHEIGHT 396//3,6 В  0x0100+  35d<<2
 #define CONSTMEDIUM 372//3,4 В  0x0100+  29d<<2

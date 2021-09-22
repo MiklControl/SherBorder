@@ -462,10 +462,9 @@ __interrupt(high_priority) void Inter(void) {
                 NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
                 NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
                 NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
-                NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
-                //NOP();NOP();             
+                NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();                             
                 bTemp >>= 1;
-                RA0 ^= 1;
+                NOP();NOP();
                 if(RB5)
                     bTemp |= 0x80;
                 else
@@ -518,10 +517,14 @@ __interrupt(high_priority) void Inter(void) {
             default: {
                 if (numByteRX == allByteRX) {//пакет прин€т полностью
                     detect.b.recData = 0;//таймер “2 можно выключить
-                    numByteRX = 0;                                      
+                    numByteRX = 0;                      
 //------------------               
                     switch (arrToRX[3]) {//байт є 3 - команда
                         case 0: {//ѕ”Ћ№—
+                            if(sessionNum > 1)//ответ ѕ”Ћ№— будет всегда, кроме одного событи€
+                                //когда sessionNum = 1
+                                sessionNum--;                            
+                            //количество сигналов ѕ”Ћ№— дл€ текущего подключени€ блютуз
                             arrToTX[0] = 0x55;arrToTX[1] = 0xAA;arrToTX[2] = 0x00;
                             arrToTX[3] = 0x00;arrToTX[4] = 0x00;
                             arrToTX[5] = 0x01;
@@ -536,47 +539,13 @@ __interrupt(high_priority) void Inter(void) {
                             allByteTX = 8;numByteTX = 0;
                             TXIE = 1; //разрешаем передачу
                             detect.b.readOk = 0;
-                            synNum = 250;
+                            synNum = 250;                             
                             break;
                         }
-                        case 0x01: {//запрос кода продукции
-                            arrToTX[3] = 0x01;
-                            arrToTX[5] = 0x08;
-                            //в кодироки ASCII (WINDOWS-1251) isnwhrlh = 69 73 6E 77 68 72 6C 68
-                            arrToTX[6] = 0x69;
-                            arrToTX[7] = 0x73;
-                            arrToTX[8] = 0x6E;
-                            arrToTX[9] = 0x77;
-                            arrToTX[10] = 0x68;
-                            arrToTX[11] = 0x72;
-                            arrToTX[12] = 0x6C;
-                            arrToTX[13] = 0x68;
-                            arrToTX[14] = 0x77;//checkSum(14);
-                            allByteTX = 15;numByteTX = 0;
-                            TXIE = 1; //разрешаем передачу
-                            detect.b.readOk = 0;
-                            synNum = 250;                            
-                            break;
-                        }
-                        case 0xE8: {//запрос версии контроллера
-                            arrToTX[3] = 0xE8;
-                            arrToTX[5] = 0x06;
-                            //верси€ 100100
-                            arrToTX[6] = 0x01;
-                            arrToTX[7] = 0x00;
-                            arrToTX[8] = 0x00;
-                            arrToTX[9] = 0x01;
-                            arrToTX[10] = 0x00;
-                            arrToTX[11] = 0x00;
-                            arrToTX[12] = 0xEF;//checkSum(12);
-                            allByteTX = 13;numByteTX = 0;
-                            TXIE = 1; //разрешаем передачу
-                            detect.b.readOk = 0;
-                            synNum = 250;
-                            break;
-                        }
+                        
                         default:{
                             detect.b.readOk = 1;//теперь надо анализировать
+                            RA1 ^= 1;
                         }
                     }                        
 //--------------------
@@ -683,27 +652,59 @@ void main(void) {
     detect.b.checkBattery = 1;
     
     while (1) {
+        if(sessionNum == 1){//рвем св€зь
+            while (TXIE);
+            //sessionNum = 0;
+            arrToTX[0] = 0x55;arrToTX[1] = 0xAA;arrToTX[2] = 0x00;
+            arrToTX[3] = 0xE7;
+            arrToTX[4] = 0x00;
+            arrToTX[5] = 0x00;
+            arrToTX[6] = 0xE6;                                                                
+            allByteTX = 7;numByteTX = 0;
+            TXIE = 1; //разрешаем передачу
+        }                                                                
+                                
         if (detect.b.readOk) {//если есть прин€тый пакет, то анализируем его
-            //не плохо бы проверить контрольную сумму у прин€того пакета
-            
+            //не плохо бы проверить контрольную сумму у прин€того пакета            
             while (TXIE); //ждем когда завершитс€ предыдуща€ передача
             arrToTX[4] = 0x00;
             switch (arrToRX[3]) {//байт є 3 - команда
-   /*             case 0x00:
-                {//ѕ”Ћ№—
-                    arrToTX[3] = 0x00;
-                    arrToTX[5] = 0x01;
-                    if (detect.b.firstOn) {//первое включение
-                        arrToTX[6] = 0x00;
-                        arrToTX[7] = 0x00;
-                        detect.b.firstOn = 0;
-                    } else {
-                        arrToTX[6] = 0x01;
-                        arrToTX[7] = 0x01;
-                    }
-                    allByteTX = 8;
+                case 0x01: {//запрос кода продукции
+                    arrToTX[3] = 0x01;
+                    arrToTX[5] = 0x08;
+                    //в кодироки ASCII (WINDOWS-1251) isnwhrlh = 69 73 6E 77 68 72 6C 68
+                    arrToTX[6] = 0x69;
+                    arrToTX[7] = 0x73;
+                    arrToTX[8] = 0x6E;
+                    arrToTX[9] = 0x77;
+                    arrToTX[10] = 0x68;
+                    arrToTX[11] = 0x72;
+                    arrToTX[12] = 0x6C;
+                    arrToTX[13] = 0x68;
+                    arrToTX[14] = checkSum(14);//0x77;
+                    allByteTX = 15;                                                
                     break;
-                }*/                                
+                }
+                case 0xE8: {//запрос версии контроллера
+                    arrToTX[3] = 0xE8;
+                    arrToTX[5] = 0x06;
+                    //верси€ 100100
+                    arrToTX[6] = 0x01;
+                    arrToTX[7] = 0x00;
+                    arrToTX[8] = 0x00;
+                    arrToTX[9] = 0x01;
+                    arrToTX[10] = 0x00;
+                    arrToTX[11] = 0x00;
+                    arrToTX[12] = checkSum(12);//0xEF;
+                    allByteTX = 13;                    
+                    break;
+                }
+                case 0xE7: {//ответ на запрос отключитьс€ от блютуза
+                    if(arrToRX[6] == 0x00){                        
+                        sessionNum = 0;//отключение подтверждено
+                    }                     
+                    break;
+                }
                 case 0x02: {//запрос на определение контактов сброса и индикатор работы у модул€
                     arrToTX[3] = 0x02;
                     arrToTX[5] = 0x00;
@@ -713,10 +714,13 @@ void main(void) {
                 }
                 case 0x03: {//сообщает рабочий статус модул€
                     //arrToRX[6]//значени статуса (0х00 - не прив€зан; 0х01 - прив€зан не подключен; 0х02 - прив€зан подключен)
+                    if(arrToRX[6] == 0x02)//устройство прив€зано
+                        sessionNum = 4;
                     arrToTX[3] = 0x03;
                     arrToTX[5] = 0x00;
                     arrToTX[6] = 0x02;
                     allByteTX = 7;
+                    
                     break;
                 }
                 case 0x08: {//запрос статуса-настроек контроллера дл€ передачи их на смартфон
@@ -867,8 +871,17 @@ void main(void) {
             if (allByteTX) {//есть байты требующие передачу
                 numByteTX = 0;                
                 TXIE = 1; //разрешаем передачу
-            }                       
+            }       
+            switch (arrToRX[3]){
+                case 0x00:
+                case 0xE7: break;//отключаем выше
+                default: {
+                    sessionNum = 4;                    
+                }
+            }
+                    
             detect.b.readOk = 0;
+            
         }
 
         if (flag.b.swOn) {//пришла команта крутить двигатель
@@ -1050,9 +1063,7 @@ void main(void) {
             CPSON = 1;//включаем сенсорные кнопки
             detect.b.checkBattery = 0;
             nWait = 10;
-            detect.b.sensSWzero = 1;
-            LED_OPEN = 0;
-            LED_CLOSE = 0;
+            detect.b.sensSWzero = 1;            
             
             while(nWait);//ждем завершени€ паузы
             TMR2IE = 0;
