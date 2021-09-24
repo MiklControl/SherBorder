@@ -572,6 +572,8 @@ __interrupt(high_priority) void Inter(void) {
 void main(void) {
     unsigned char i;
     byte bTemp;
+    byte pauseNumSens;    
+    
     //прототип объекта замка
     union uLock{
         struct sLock{
@@ -1063,8 +1065,7 @@ void main(void) {
             CPSON = 1;//включаем сенсорные кнопки
             detect.b.checkBattery = 0;
             nWait = 10;
-            detect.b.sensSWzero = 1;            
-            
+            detect.b.sensSWzero = 1;                        
             while(nWait);//ждем завершения паузы
             TMR2IE = 0;
         }
@@ -1085,6 +1086,7 @@ void main(void) {
             sensSW[0].level = 0;
             sensSW[1].level = 0;
             detect.b.sensSWzero = 0;
+            pauseNumSens = 2 * CONSTAKK;
         }
         //анализ сенсорных кнопок
         for (i = 0; i < 2; i++) {
@@ -1122,8 +1124,7 @@ void main(void) {
             wTemp = sensSW[i].level;
             wTemp >>= 1;
             
-            
-            if(!nWait){
+            if(!pauseNumSens){
             //сравниваем уровень и мгновенное значение
                 if(wTemp > sensSW[i].sampl){
                     if ((wTemp - sensSW[i].sampl) > CONSTSIGNALON) {                    
@@ -1146,7 +1147,9 @@ void main(void) {
                             commandForMotor = cSensSWClose;
                     }
                 }
-            }                            
+            } else {
+                pauseNumSens --;
+            }            
         }
         
         if(!detect.b.recData && !nWait)
