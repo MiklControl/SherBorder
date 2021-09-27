@@ -257,10 +257,13 @@ void Initial(void) {
     
     numCh = 0;
     CPSCON1 = setCh[numCh];
+    
 
     TMR0CS = 0; //частота Fosc/4
     PSA = 0;
-    PS0 = 1; PS1 = 1; PS2 = 0;
+    PS0 = 1; PS1 = 0; PS2 = 1;//4 МГц / 4 получаем период 1 us; делитель на 64
+    //тогда период прерывания таймера 256 * 64 = 16,384 ms
+    
     
     TMR1CS0 = 1;
     TMR1CS1 = 1; //11 =Timer1 clock source is Capacitive Sensing Oscillator (CAPOSC)
@@ -331,28 +334,7 @@ __interrupt(high_priority) void Inter(void) {
     unsigned int wTemp;    
     byte *p;           
     byte bTemp;
-   
-    SWDTEN = 0;
-    //для двух кнопок
- /*   if (TMR1GIF && TMR1GIE) {           
-        TMR1GIF = 0;
-        T1GCONbits.T1GGO = 1;
-        
-        wTemp = (unsigned int)(TMR1H << 8) + TMR1L;
-        dl[numCh] = wTemp;
-        fDl[numCh] = 1;
-
-        CPSCON1 = setCh[numCh]; //устанавливаем канал
-               
-        if (numCh) {
-            numCh = 0;
-        } else {
-            numCh = 1;
-        }
-        TMR1L = 0;
-        TMR1H = 0;       
-    }
-*/
+    
     if (ADIE && ADIF) {//опрос АЦП
         p = (byte *)&wTemp;
         //wValADC.b[1] = ADRESH;
@@ -1159,28 +1141,19 @@ void main(void) {
             continue;
         
 //только UART        IOCBN5 = 1;  
-        TMR1L = 0;
-        TMR1H = 0;
+        TMR1 = 0;
         TMR1ON = 1;
         SWDTEN = 1;
         SLEEP();
         SWDTEN = 0;
-        if(!TMR2IE){
-            TMR1ON = 0;
+        TMR1ON = 0;
+       //if(!TMR2IE){
+        if(!STATUSbits.nTO){//закончилось время ожидания сторожевого таймера
             dl[numCh] = (unsigned int)(TMR1H << 8) + TMR1L;
             fDl[numCh] = 1;
             CPSCON1 = setCh[numCh]; //устанавливаем канал
-            if (numCh) {
-                        /*wTemp = dl[numCh];
-                          do{  
-                           RA1 = 1;
-                          wTemp -= 6;
-                          RA1 = 0;
-                        }while(wTemp > 7);   */      
-                numCh = 0;
-            } else {
-                numCh = 1;
-            }
+            numCh ^= 1;
+            numCh &= 0b1;
         }
     }
 }
