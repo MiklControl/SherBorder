@@ -257,13 +257,10 @@ void Initial(void) {
     
     numCh = 0;
     CPSCON1 = setCh[numCh];
-    
 
     TMR0CS = 0; //частота Fosc/4
     PSA = 0;
-    PS0 = 1; PS1 = 0; PS2 = 1;//4 МГц / 4 получаем период 1 us; делитель на 64
-    //тогда период прерывания таймера 256 * 64 = 16,384 ms
-    
+    PS0 = 1; PS1 = 1; PS2 = 0;
     
     TMR1CS0 = 1;
     TMR1CS1 = 1; //11 =Timer1 clock source is Capacitive Sensing Oscillator (CAPOSC)
@@ -334,7 +331,10 @@ __interrupt(high_priority) void Inter(void) {
     unsigned int wTemp;    
     byte *p;           
     byte bTemp;
-    
+   
+    SWDTEN = 0;
+    //для двух кнопок
+ 
     if (ADIE && ADIF) {//опрос АЦП
         p = (byte *)&wTemp;
         //wValADC.b[1] = ADRESH;
@@ -555,7 +555,7 @@ void main(void) {
     unsigned char i;
     byte bTemp;
     byte pauseNumSens;    
-    
+    byte *p;
     //прототип объекта замка
     union uLock{
         struct sLock{
@@ -636,6 +636,7 @@ void main(void) {
     detect.b.checkBattery = 1;
     
     while (1) {
+        //CPSON = 1;//включаем сенсорные кнопки
         if(sessionNum == 1){//рвем связь
             while (TXIE);
             //sessionNum = 0;
@@ -989,7 +990,7 @@ void main(void) {
             detect.b.checkBattery = 1;
             commandForMotor = cNoComm;
         }
-    
+
         //для теста аккумулятора
         if(detect.b.checkBattery){
             CPSON = 0;//вЫключаем сенсорные кнопки
@@ -1047,7 +1048,7 @@ void main(void) {
             CPSON = 1;//включаем сенсорные кнопки
             detect.b.checkBattery = 0;
             nWait = 10;
-            detect.b.sensSWzero = 1;                        
+            detect.b.sensSWzero = 1;
             while(nWait);//ждем завершения паузы
             TMR2IE = 0;
         }
@@ -1075,9 +1076,7 @@ void main(void) {
             if (fDl[i] == 0) {
                 continue;
             }
-            fDl[i] = 0;
-            wTemp = dl[i];
-                         
+            fDl[i] = 0;            
             //НЧ фильтрация
             if(i == 1){
                 bTemp = CONSTAKK - 1;
@@ -1088,7 +1087,7 @@ void main(void) {
                 }
             }
             sensSW[i].sampl -= filterS[iSampl][i];
-            filterS[iSampl][i] = wTemp;
+            filterS[iSampl][i] = dl[i];
             sensSW[i].sampl += filterS[iSampl][i];
             
             if(i == 1){
@@ -1100,11 +1099,12 @@ void main(void) {
                 }
             }
             sensSW[i].level -= filterL[iLevel][i];
-            filterL[iLevel][i] = wTemp;
+            filterL[iLevel][i] = dl[i];
             sensSW[i].level += filterL[iLevel][i];
             
             wTemp = sensSW[i].level;
             wTemp >>= 1;
+            
             
             if(!pauseNumSens){
             //сравниваем уровень и мгновенное значение
@@ -1130,8 +1130,8 @@ void main(void) {
                     }
                 }
             } else {
-                pauseNumSens --;
-            }            
+                pauseNumSens--;
+            }
         }
         
         if(!detect.b.recData && !nWait)
@@ -1141,19 +1141,23 @@ void main(void) {
             continue;
         
 //только UART        IOCBN5 = 1;  
-        TMR1 = 0;
+        TMR1L = 0;
+        TMR1H = 0;
         TMR1ON = 1;
         SWDTEN = 1;
         SLEEP();
         SWDTEN = 0;
         TMR1ON = 0;
-       //if(!TMR2IE){
-        if(!STATUSbits.nTO){//закончилось время ожидания сторожевого таймера
-            dl[numCh] = (unsigned int)(TMR1H << 8) + TMR1L;
+        if(!STATUSbits.nTO){
+            TMR1ON = 0;
+            p = (unsigned char *)&dl[numCh];
+            *p = TMR1L;
+            p++;
+            *p = TMR1H;
             fDl[numCh] = 1;
-            CPSCON1 = setCh[numCh]; //устанавливаем канал
             numCh ^= 1;
             numCh &= 0b1;
+            CPSCON1 = setCh[numCh]; //устанавливаем канал 
         }
     }
 }

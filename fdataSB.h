@@ -58,8 +58,8 @@ byte intervalTimeADC;
 volatile byte nHalfTurn;//количество срабатываний оптического датчика = количество полуоборотов
 
 byte numCh;
-volatile unsigned int dl[3];
-volatile unsigned fDl[3];
+volatile unsigned int dl[2];
+volatile byte fDl[2];
 
 volatile unsigned int nWait;
 volatile byte stat;
