@@ -257,10 +257,13 @@ void Initial(void) {
     
     numCh = 0;
     CPSCON1 = setCh[numCh];
+    
 
     TMR0CS = 0; //частота Fosc/4
     PSA = 0;
-    PS0 = 1; PS1 = 1; PS2 = 0;
+    PS0 = 1; PS1 = 0; PS2 = 1;//4 МГц / 4 получаем период 1 us; делитель на 64
+    //тогда период прерывания таймера 256 * 64 = 16,384 ms
+    
     
     TMR1CS0 = 1;
     TMR1CS1 = 1; //11 =Timer1 clock source is Capacitive Sensing Oscillator (CAPOSC)
@@ -331,10 +334,7 @@ __interrupt(high_priority) void Inter(void) {
     unsigned int wTemp;    
     byte *p;           
     byte bTemp;
-   
-    SWDTEN = 0;
-    //для двух кнопок
- 
+    
     if (ADIE && ADIF) {//опрос АЦП
         p = (byte *)&wTemp;
         //wValADC.b[1] = ADRESH;
@@ -469,8 +469,8 @@ __interrupt(high_priority) void Inter(void) {
         }
     }
             
-    if(detect.b.UART){
-        detect.b.UART = 0;
+    if(detect.b.UART && 0){
+        detect.b.UART = 0;        
         switch (numByteRX) {
             case 1: {
                 if (arrToRX[0] != 0x55) {//это не первый байт
@@ -526,8 +526,7 @@ __interrupt(high_priority) void Inter(void) {
                         }
                         
                         default:{
-                            detect.b.readOk = 1;//теперь надо анализировать
-                            RA1 ^= 1;
+                            detect.b.readOk = 1;//теперь надо анализировать                            
                         }
                     }                        
 //--------------------
@@ -539,6 +538,7 @@ __interrupt(high_priority) void Inter(void) {
     }//UART
 
     if (TXIE && TXIF) {
+TXIE = 0;        
         if(numByteTX != allByteTX){//переданы все байты
             TXREG = arrToTX[numByteTX];
             numByteTX++;
@@ -556,6 +556,9 @@ void main(void) {
     byte bTemp;
     byte pauseNumSens;    
     byte *p;
+    
+    byte check_interval[2];
+            
     //прототип объекта замка
     union uLock{
         struct sLock{
@@ -576,7 +579,8 @@ void main(void) {
     
     #define ALLNUMPARAM 7//количество параметров + 1 которое передается на смартфон
     #define CONSTSIGNALON 80//40
-    
+    #define CONSTCHECKINTERVAL 20
+            
     struct sSensorSW{
         unsigned int sampl;//текущее усредненное значение
         unsigned int level;//постоянный уровень        
@@ -635,8 +639,12 @@ void main(void) {
     TMR2IE = 0;
     detect.b.checkBattery = 1;
     
-    while (1) {
-        //CPSON = 1;//включаем сенсорные кнопки
+    detect.b.checkBattery = 0;
+    detect.b.sensSWzero = 1;
+    
+    while (1) { 
+        CPSON = 1;//включаем сенсорные кнопки
+/*        
         if(sessionNum == 1){//рвем связь
             while (TXIE);
             //sessionNum = 0;
@@ -868,7 +876,7 @@ void main(void) {
             detect.b.readOk = 0;
             
         }
-
+*/
         if (flag.b.swOn) {//пришла команта крутить двигатель
             CPSON = 0; //вЫключаем сенсорные кнопки
                    
@@ -1048,11 +1056,11 @@ void main(void) {
             CPSON = 1;//включаем сенсорные кнопки
             detect.b.checkBattery = 0;
             nWait = 10;
-            detect.b.sensSWzero = 1;
+            detect.b.sensSWzero = 1;                        
             while(nWait);//ждем завершения паузы
             TMR2IE = 0;
         }
-        
+
         if(detect.b.sensSWzero){
             for(i = 0; i < CONSTAKK; i++){
                 filterS[i][0] = 0;
@@ -1071,12 +1079,14 @@ void main(void) {
             detect.b.sensSWzero = 0;
             pauseNumSens = 2 * CONSTAKK;
         }
+        RA0 ^= 1;
         //анализ сенсорных кнопок
         for (i = 0; i < 2; i++) {
             if (fDl[i] == 0) {
                 continue;
             }
-            fDl[i] = 0;            
+           
+            fDl[i] = 0;                                     
             //НЧ фильтрация
             if(i == 1){
                 bTemp = CONSTAKK - 1;
@@ -1102,36 +1112,54 @@ void main(void) {
             filterL[iLevel][i] = dl[i];
             sensSW[i].level += filterL[iLevel][i];
             
+            TXREG = (unsigned char)(dl[i]) & 0x7F;
+            
             wTemp = sensSW[i].level;
             wTemp >>= 1;
             
+            while(!TXIF);
+            bTemp = (unsigned char)(dl[i] >> 7);
+            bTemp &= 0x3F;//0b0011 1111
+            bTemp |= ((i + 1) << 5) | 0x80;
+            TXREG = bTemp;            
+            while(!TRMT);
+            RA1 ^= 1;
             
             if(!pauseNumSens){
             //сравниваем уровень и мгновенное значение
                 if(wTemp > sensSW[i].sampl){
-                    if ((wTemp - sensSW[i].sampl) > CONSTSIGNALON) {                    
-                        if(i){
-                            //открыть, а при инверсии закрыть
-                     //       LED_OPEN = 1 ^ flag.b.inverMov;                        
-                     //       LED_CLOSE = 0 ^ flag.b.inverMov;
+                    if ((wTemp - sensSW[i].sampl) > CONSTSIGNALON) { 
+                        if(check_interval[(i ^ 1) & 0b1] == 0)//на другом канале нет сигнала
+                            check_interval[i] = CONSTCHECKINTERVAL;                        
+                    } 
+                }
+            } else {
+                pauseNumSens--;
+            }
+                    
+            if(check_interval[i] > 0) {
+                if(check_interval[i] == 1){                                
+                    if(check_interval[(i ^ 1) & 0b1] == 0) {
+                        if(i) {//открыть, а при инверсии закрыть
+                            LED_OPEN = 1 ^ flag.b.inverMov;                        
+                            LED_CLOSE = 0 ^ flag.b.inverMov;
                             flag.b.direct = 1 ^ flag.b.inverMov;
-                        }else{
-                            //закрыть, а при инверсии открыть                        
-                     //       LED_OPEN = 0 ^ flag.b.inverMov;
-                     //       LED_CLOSE = 1 ^ flag.b.inverMov;
+                        } else{//закрыть, а при инверсии открыть                                                            
+                            LED_OPEN = 0 ^ flag.b.inverMov;
+                            LED_CLOSE = 1 ^ flag.b.inverMov;
                             flag.b.direct = 0 ^ flag.b.inverMov;
                         }
-                        flag.b.swOn = 1;
+ //test SW Sens                       flag.b.swOn = 1;
                         detect.b.checkBattery = 0;//запрет на проверку заряда батареи
                         if(flag.b.direct)
                             commandForMotor = cSensSWOpen;
                         else
                             commandForMotor = cSensSWClose;
-                    }
-                }
-            } else {
-                pauseNumSens--;
-            }
+                    } 
+                    check_interval[i] = 0;
+                } else 
+                    check_interval[i]--;                        
+            }                        
         }
         
         if(!detect.b.recData && !nWait)
@@ -1141,23 +1169,28 @@ void main(void) {
             continue;
         
 //только UART        IOCBN5 = 1;  
-        TMR1L = 0;
-        TMR1H = 0;
+        TMR1 = 0;
         TMR1ON = 1;
         SWDTEN = 1;
         SLEEP();
         SWDTEN = 0;
         TMR1ON = 0;
-        if(!STATUSbits.nTO){
-            TMR1ON = 0;
+       //if(!TMR2IE){
+        if(!STATUSbits.nTO){//закончилось время ожидания сторожевого таймера
             p = (unsigned char *)&dl[numCh];
             *p = TMR1L;
             p++;
             *p = TMR1H;
+            
+            /*dl[numCh] = (unsigned int)TMR1H;
+            dl[numCh] <<= 8;
+            dl[numCh] += TMR1L;
+            */
+            
             fDl[numCh] = 1;
             numCh ^= 1;
             numCh &= 0b1;
-            CPSCON1 = setCh[numCh]; //устанавливаем канал 
+            CPSCON1 = setCh[numCh]; //устанавливаем канал            
         }
     }
 }
