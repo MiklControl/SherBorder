@@ -57,9 +57,9 @@ byte intervalTimeADC;
 
 volatile byte nHalfTurn;//количество срабатываний оптического датчика = количество полуоборотов
 
-byte numCh;
-volatile unsigned int dl[2];
-volatile byte fDl[2];
+byte numCh, numChNew;
+//volatile unsigned int dl[2];
+//volatile byte fDl[2];
 
 volatile unsigned int nWait;
 volatile byte stat;
@@ -72,8 +72,9 @@ byte cicleGo;
 byte Turn;
 byte Status;
 int numHighCurrent;
+int numLowBatt;
 
-#define CONSTBIG 21
+#define CONSTBIG 20
 
 byte numByteRX;//номер принимаемого байта
 byte allByteRX;//количество байт, которое должно быть в принятом пакете

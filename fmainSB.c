@@ -10,6 +10,8 @@
 #include <proc\pic16f1828.h>
 #include "fdataSB.h"
 
+#define Repeat
+
 #define setbit(var, bit) ((var) |= (1 << (bit)))
 #define clrbit(var, bit) ((var) &= ~(1 << (bit)))
 
@@ -59,14 +61,13 @@ byte moveMotor() {
     stat = stDevTurn; //статус прямой ход
     
     numHighCurrent = 0;
+    numLowBatt = 0;
     intervalTimeADC = 0xFF;//0xD0;
     
     nWait = 7;
     TMR2IE = 1;
     
-    IOCAF5 = 0;
-    IOCIF = 0;
-    IOCIE = 1;
+    IOCAF5 = 0;        
 
     while (1) {
         if (!flag.b.motorMove) {//анализируем когда моторо остановлен
@@ -181,41 +182,25 @@ void Initial(void) {
     IRCF2 = 1;
     IRCF1 = 0;
     IRCF0 = 1; //4 MHz    
-/*
-    byte bTemp;    
-    byte numByte;
-   numByte = 7;
-        do{
-            //пауза для одного бита            
-            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
-            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
-            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
-            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
-            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
-            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
-            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
-            NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();
-            //NOP();NOP();
-            
-            bTemp >>= 1;
-            if(RB5)
-                bTemp |= 0x80;
-            else
-                bTemp |= 0x00;
-            
-            NOP();                                            
-        }while(numByte--);
-        */
         
     LED_OPEN_DIR = OUTPUT;
     LED_CLOSE_DIR = OUTPUT;
+    
     LATAbits.LATA0 = 0;
     LATAbits.LATA1 = 0;
     ANSELAbits.ANSA0 = 0;   
-    TRISA0 = OUTPUT;
+    ANSELAbits.ANSA1 = 0;
+    
     
     TRISA1 = OUTPUT;
-    ANSELAbits.ANSA1 = 0;
+    
+    #ifdef Repeat
+    TRISA0 = INPUT;
+    IOCAN0 = 1; //разрешаем прерыание по каналу RB5, перепад из 1 в 0
+    #else
+    TRISA0 = OUTPUT;
+    IOCBN5 = 1; //разрешаем прерыание по каналу RB5, перепад из 1 в 0 
+    #endif
  
     LATCbits.LATC5 = 0;
     IN1_DIR = OUTPUT;
@@ -234,10 +219,7 @@ void Initial(void) {
 
     sensOpto_DIR = INPUT;
     IOCAN5 = 1; //разрешаем прерыание по каналу RA5, перепад из 1 в 0
-    INLVLA5 = 0; //TTL   триггер шмитта
-        
-    IOCBN5 = 1; //разрешаем прерыание по каналу RB5, перепад из 1 в 0
-    //INLVLB5 = 0;
+    INLVLA5 = 0; //TTL   триггер шмитта    
     
     IOCIE = 1;
 
@@ -289,16 +271,18 @@ void Initial(void) {
     TRISB7 = OUTPUT;
     ANSELBbits.ANSB5 = 0;
     LATBbits.LATB5 = 0;
+
     APFCON0bits.RXDTSEL = 0; //RB5 - RX
     APFCON0bits.TXCKSEL = 0; //RB7 - TX
-    SYNC = 0;
     
+    SYNC = 0;    
     SPEN = 1;    
     BRGH = 1;
     BRG16 = 0;
     TXEN = 1;    
     SPBRGH = 0;
     SPBRGL = 25; //9600 bit/s
+    RCIE = 0;
 
     //конфигурация АЦП
     ADCON0 = 0;
@@ -322,7 +306,7 @@ void Initial(void) {
         
     SWDTEN = 0;
 
-    PEIE = 1;
+    PEIE = 1;    
     GIE = 1;
 }
 //------------------------------------------------------------------
@@ -333,17 +317,18 @@ __interrupt(high_priority) void Inter(void) {
     byte bTemp;
    
     SWDTEN = 0;
-    //для двух кнопок
- 
+    //для двух кнопок    
     if (ADIE && ADIF) {//опрос АЦП
         p = (byte *)&wTemp;
         //wValADC.b[1] = ADRESH;
         //wValADC.b[0] = ADRESL;
         *p++ = ADRESL;
         *p = ADRESH;
-        wTemp = (word)(ADRESH << 8) + ADRESL;
+  //      wTemp = (word)(ADRESH << 8) + ADRESL;
         if(detect.b.checkBattery){
             valuePowerADC = wTemp;//wValADC.num;
+            if(valuePowerADC == 0)
+                valuePowerADC = 1;
         }else{//анализируем сигнал с датчика тока
             //if (wValADC.num > CONSTPOROG) {//держим в крайнем положении в течении заданного интервала
             //вариант фильтра, фиксируем количество событий превышений сигнала с датчика тока,
@@ -355,16 +340,27 @@ __interrupt(high_priority) void Inter(void) {
                 if (numHighCurrent)
                     numHighCurrent--;
             }
-            if (numHighCurrent >= CONSTBIG) {//количество превышений досигла максимума             
+            
+            if ((wTemp > 46)){// && (wTemp < 55)) {                                     
+                numLowBatt += 1;RA1 = 0;                
+            } else {                
+                if (numLowBatt)
+                    numLowBatt--;
+                RA1 = 0;
+            }
+            
+            if ((numHighCurrent >= CONSTBIG) || (numLowBatt == 500)) {//количество превышений досигла максимума             
                 flag.b.motorMove = 0;
                 flag.b.currBig = 1;
                 numHighCurrent = 0;
+                numLowBatt = 0;
             }
-        }
+        }        
         ADIF = 0;
     }
 
     if (TMR2IE && TMR2IF) {
+       
         if (nWait) {
             nWait--;
         }else{//по завершению временной паузы разрешаем опрос АЦП
@@ -379,18 +375,7 @@ __interrupt(high_priority) void Inter(void) {
                 if(flag.b.motorMove){//двигатель крутится
                     if(!ADCON0bits.GO)
                         ADCON0bits.GO = 1;
-                    TMR2 = intervalTimeADC;//косвенным образом устанавливаем частоту опроса АЦП
-                                     
-            /*    if(nWaitS & 0b10000){
-                    if(flag.b.direct){                                        
-                        setbit(PORTC, bLED_OPEN);
-                    }else{                    
-                        setbit(PORTA, bLED_CLOSE);
-                    }
-                }else{
-                    clrbit(PORTC, bLED_OPEN);
-                    clrbit(PORTA, bLED_CLOSE);                
-                } */               
+                    TMR2 = intervalTimeADC;//косвенным образом устанавливаем частоту опроса АЦП                                                             
                 }
             }
         }
@@ -408,9 +393,9 @@ __interrupt(high_priority) void Inter(void) {
         
         if(synNum)
             synNum--;
-        TMR2IF = 0;
+        TMR2IF = 0;        
     }
-    if(IOCIE){
+    if(IOCIE){                
         //прерывание по оптическому каналу
         if(IOCAF5) {
             if (!nWait) {
@@ -427,10 +412,15 @@ __interrupt(high_priority) void Inter(void) {
                 nWait = 5;
                 TMR2IE = 1;
             }
-            IOCAF5 = 0;
-            IOCIF = 0;
+            
+            IOCAF5 = 0;            
         }
-        if(IOCBF5){
+        #ifdef Repeat
+        if(IOCAF0)
+        #else
+        if(IOCBF5)
+        #endif
+        {            
             TMR2IE = 1;
             byte numBit = 7;
             detect.b.UART = 1;
@@ -447,15 +437,32 @@ __interrupt(high_priority) void Inter(void) {
                 NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();NOP();                             
                 bTemp >>= 1;
                 NOP();NOP();
+                
+                #ifdef Repeat
+                if(RA0)
+                #else
                 if(RB5)
+                #endif
+                {
                     bTemp |= 0x80;
-                else
+                    //RA1 = 1;
+                }
+                else {
                     bTemp |= 0x00;
+                    //RA1 = 0;
+                }
                                                        
             }while(numBit--);
+            
+            #ifdef Repeat
+            IOCAF0 = 0;
+            #else
             IOCBF5 = 0;
+            #endif
+            
             arrToRX[numByteRX++] = bTemp;
-        }
+        }                
+        //только для чтения IOCIF, очищается автоматом, когда другие прерывания обнулены
     }
  
     if (RCIE && RCIF) {        
@@ -470,18 +477,20 @@ __interrupt(high_priority) void Inter(void) {
     }
             
     if(detect.b.UART){
-        detect.b.UART = 0;
+        detect.b.UART = 0;        
         switch (numByteRX) {
             case 1: {
                 if (arrToRX[0] != 0x55) {//это не первый байт
                     numByteRX = 0;
                 } else{
+                    //RA1 = 1;
                     timeTactRead = 10; //максимальное время на прием всего пакета
                     detect.b.recData = 1;//идет прием данных
                 }
                 break;
             }
             case 2: {
+                //RA1 = 0;
                 if (arrToRX[1] != 0xAA)//это не второй байт
                     numByteRX = 0;
                 break;
@@ -497,7 +506,7 @@ __interrupt(high_priority) void Inter(void) {
                 break;
             }
             default: {
-                if (numByteRX == allByteRX) {//пакет принят полностью
+                if (numByteRX == allByteRX) {//пакет принят полностью                    
                     detect.b.recData = 0;//таймер Т2 можно выключить
                     numByteRX = 0;                      
 //------------------               
@@ -526,8 +535,7 @@ __interrupt(high_priority) void Inter(void) {
                         }
                         
                         default:{
-                            detect.b.readOk = 1;//теперь надо анализировать
-                            RA1 ^= 1;
+                            detect.b.readOk = 1;//теперь надо анализировать                             
                         }
                     }                        
 //--------------------
@@ -547,7 +555,8 @@ __interrupt(high_priority) void Inter(void) {
                 //только когда передан последний байт
                 TXIE = 0;
         }
-    }
+    }    
+    //RA1 ^= 1;
     return;
 }
 //------------------------------------------------------------------
@@ -575,11 +584,13 @@ void main(void) {
         myLock.all[i] = 0;
     
     #define ALLNUMPARAM 7//количество параметров + 1 которое передается на смартфон
-    #define CONSTSIGNALON 40//80//
+    #define CONSTSIGNALON 80//40//
     #define CONSTCHECKINTERVAL 30
    
     byte check_interval[2];
-            
+    byte fDl;
+    unsigned int dl;
+    
     struct sSensorSW{
         unsigned int sampl;//текущее усредненное значение
         unsigned int level;//постоянный уровень        
@@ -588,6 +599,7 @@ void main(void) {
     #define CONSTAKK    5     
     unsigned int filterS[CONSTAKK][2];//для фильтра НЧ
     unsigned int filterL[CONSTAKK * 2][2];
+    unsigned char future_enabled[2];
     
     unsigned char iSampl, idUser, iLevel;
     
@@ -638,11 +650,14 @@ void main(void) {
     TMR2IE = 0;
     detect.b.checkBattery = 1;
     
-    while (1) {
+    while (1) {    
+  //      RA1 ^= 1;
         //CPSON = 1;//включаем сенсорные кнопки
+        #ifdef Repeat
+    
+        #else            
         if(sessionNum == 1){//рвем связь
-            while (TXIE);
-            //sessionNum = 0;
+            while (TXIE);            
             arrToTX[0] = 0x55;arrToTX[1] = 0xAA;arrToTX[2] = 0x00;
             arrToTX[3] = 0xE7;
             arrToTX[4] = 0x00;
@@ -650,9 +665,11 @@ void main(void) {
             arrToTX[6] = 0xE6;                                                                
             allByteTX = 7;numByteTX = 0;
             TXIE = 1; //разрешаем передачу
-        }                                                                
+        }    I
+        #endif                                                                        
                                 
-        if (detect.b.readOk) {//если есть принятый пакет, то анализируем его
+        if (detect.b.readOk) {//если есть принятый пакет, то анализируем его  
+            RA1 ^=  1;
             //не плохо бы проверить контрольную сумму у принятого пакета            
             while (TXIE); //ждем когда завершится предыдущая передача
             arrToTX[4] = 0x00;
@@ -874,26 +891,35 @@ void main(void) {
 
         if (flag.b.swOn) {//пришла команта крутить двигатель
             CPSON = 0; //вЫключаем сенсорные кнопки
-                   
+              
+            #ifdef Repeat
+    
+            #else            
             IOCBN5 = 0;
             CREN = 1;
             RCIF = 0;
             RCIE = 1;
-            
+            #endif
+
             while (TXIE);
             moveMotor();
             
             TMR2IE = 1;
            
-            while((synNum < 100) || (synNum > 150));
+            while(synNum > 200);
             synNum = 200;
             while (TXIE)
                NOP();
            
             CREN = 0;
             RCIE = 0;
+            
+            #ifdef Repeat
+    
+            #else            
             IOCBN5 = 1;
-             
+            #endif
+            
             arrToTX[0] = 0x55;
             arrToTX[1] = 0xAA;
             arrToTX[2] = 0x00; //версия
@@ -930,8 +956,8 @@ void main(void) {
             //nWait = 3;                        
             //while(nWait);//ждем завершения паузы
             
-            while((synNum < 150) || (synNum > 200))
-                NOP();//чтобы сразу за командой ПУЛЬС
+            //while(synNum > 200)
+                //NOP();//чтобы сразу за командой ПУЛЬС
             while (TXIE)
                 NOP();
             
@@ -1075,14 +1101,14 @@ void main(void) {
             pauseNumSens = 2 * CONSTAKK;
         }
         //анализ сенсорных кнопок
-        for (i = 0; i < 2; i++) {
+        /*for (i = 0; i < 2; i++) {        
             if (fDl[i] == 0) {
                 continue;
             }
             fDl[i] = 0;            
             //НЧ фильтрация
             if(i == 1){
-                bTemp = 1;//два CONSTAKK - 1;
+                bTemp = CONSTAKK - 1;
                 if(iSampl < bTemp){
                     iSampl++;
                 }else{
@@ -1094,7 +1120,7 @@ void main(void) {
             sensSW[i].sampl += filterS[iSampl][i];
             
             if(i == 1){
-                bTemp = 7;//восемь   2 * CONSTAKK - 1;
+                bTemp = 2 * CONSTAKK - 1;
                 if(iLevel < bTemp){
                     iLevel++;
                 }else{
@@ -1106,24 +1132,30 @@ void main(void) {
             sensSW[i].level += filterL[iLevel][i];
             
             wTemp = sensSW[i].level;
-            wTemp >>= 2;//wTemp >>= 1;
-            
+            wTemp >>= 1;
             
             if(!pauseNumSens){
             //сравниваем уровень и мгновенное значение
                 if(wTemp > sensSW[i].sampl){
-                    if ((wTemp - sensSW[i].sampl) > CONSTSIGNALON) {                    
-                        if(check_interval[(i ^ 1) & 0b1] == 0)//на другом канале нет сигнала
-                            check_interval[i] = CONSTCHECKINTERVAL;                        
-                    } 
+                    if ((wTemp - sensSW[i].sampl) > CONSTSIGNALON) {                                            
+                        check_interval[i] = CONSTCHECKINTERVAL; 
+                        if(i) RA1 = 1; else RA0 = 1;
+                    }   
                 }
             } else {
                 pauseNumSens--;
             }
                     
             if(check_interval[i] > 0) {
+                bTemp = i;
+                bTemp ^= 1;
+                bTemp &= 0b1;
+                if(check_interval[bTemp] > 0){
+                    future_enabled[i] = 0;//на текущее срабатывание кнопки запрещаем вращение
+                }
+            
                 if(check_interval[i] == 1){                                
-                    if(check_interval[(i ^ 1) & 0b1] == 0) {
+                    if(future_enabled[i]) {//вращение разрешено
                         if(i) {//открыть, а при инверсии закрыть
                         //    LED_OPEN = 1 ^ flag.b.inverMov;                        
                         //    LED_CLOSE = 0 ^ flag.b.inverMov;
@@ -1133,23 +1165,96 @@ void main(void) {
                         //    LED_CLOSE = 1 ^ flag.b.inverMov;
                             flag.b.direct = 0 ^ flag.b.inverMov;
                         }
-                        flag.b.swOn = 1;
-                        detect.b.checkBattery = 0;//запрет на проверку заряда батареи
+                        flag.b.swOn = 1;                        
                         if(flag.b.direct)
                             commandForMotor = cSensSWOpen;
                         else
                             commandForMotor = cSensSWClose;
-                    } 
-                    check_interval[i] = 0;
-                } else 
-                    check_interval[i]--;                        
+                    }                     
+                }
+                check_interval[i]--;                        
+            } else {
+                if(i) RA1 = 0; else RA0 = 0;
+                future_enabled[i] = 1;//потенциально разрешаем срабатывание кнопки
+            }
+        }*/
+        
+        if (fDl == 1) {                
+            fDl = 0;            
+            //НЧ фильтрация
+            if(numCh == 1){
+                bTemp = CONSTAKK - 1;
+                if(iSampl < bTemp){
+                    iSampl++;
+                }else{
+                    iSampl = 0;
+                }
+            }
+            sensSW[numCh].sampl -= filterS[iSampl][numCh];
+            filterS[iSampl][numCh] = dl;
+            sensSW[numCh].sampl += filterS[iSampl][numCh];
+            
+            if(numCh == 1){
+                bTemp = 2 * CONSTAKK - 1;
+                if(iLevel < bTemp){
+                    iLevel++;
+                }else{
+                    iLevel = 0;
+                }
+            }
+            sensSW[numCh].level -= filterL[iLevel][numCh];
+            filterL[iLevel][numCh] = dl;
+            sensSW[numCh].level += filterL[iLevel][numCh];
+            
+            wTemp = sensSW[numCh].level;
+            wTemp >>= 1;
+            
+            if(!pauseNumSens){
+            //сравниваем уровень и мгновенное значение
+                if(wTemp > sensSW[numCh].sampl){
+                    if ((wTemp - sensSW[numCh].sampl) > CONSTSIGNALON) {                                            
+                        check_interval[numCh] = CONSTCHECKINTERVAL; 
+ //                if(numCh) RA1 = 1; else RA0 = 1;
+                    }   
+                }
+            } else {
+                pauseNumSens--;
+            }
+                    
+            if(check_interval[numCh] > 0) {                
+                if(check_interval[numChNew] > 0){
+                    future_enabled[numCh] = 0;//на текущее срабатывание кнопки запрещаем вращение
+                }
+            
+                if(check_interval[numCh] == 1){                                
+                    if(future_enabled[numCh]) {//вращение разрешено
+                        if(numCh) {//закрыть, а при инверсии открыть                                                            
+                        //    LED_OPEN = 0 ^ flag.b.inverMov;
+                        //    LED_CLOSE = 1 ^ flag.b.inverMov;
+                            flag.b.direct = 0 ^ flag.b.inverMov;
+                        } else{//открыть, а при инверсии закрыть
+                        //    LED_OPEN = 1 ^ flag.b.inverMov;                        
+                        //    LED_CLOSE = 0 ^ flag.b.inverMov;
+                            flag.b.direct = 1 ^ flag.b.inverMov;                            
+                        }
+                        flag.b.swOn = 1;                        
+                        if(flag.b.direct)
+                            commandForMotor = cSensSWOpen;
+                        else
+                            commandForMotor = cSensSWClose;
+                    }                     
+                }
+                check_interval[numCh]--;                        
+            } else {
+ //               if(numCh) RA1 = 0; else RA0 = 0;
+                future_enabled[numCh] = 1;//потенциально разрешаем срабатывание кнопки
             }
         }
-        
+         
         if(!detect.b.recData && !nWait)
             TMR2IE = 0;
         
-        if(TMR2IE || TXIE || IOCAF5)// || flag.b.answer)
+        if(TMR2IE || TXIE || IOCAF5 || flag.b.swOn)
             continue;
         
 //только UART        IOCBN5 = 1;  
@@ -1162,14 +1267,19 @@ void main(void) {
         TMR1ON = 0;
         if(!STATUSbits.nTO){
             TMR1ON = 0;
-            p = (unsigned char *)&dl[numCh];
+            numCh = numChNew;
+            p = (unsigned char *)&dl;
             *p = TMR1L;
             p++;
             *p = TMR1H;
-            fDl[numCh] = 1;
-            numCh ^= 1;
-            numCh &= 0b1;
-            CPSCON1 = setCh[numCh]; //устанавливаем канал 
+            //fDl[numCh] = 1;
+            fDl = 1;
+            //numCh ^= 1;
+            //numCh &= 0b1;
+            //CPSCON1 = setCh[numCh]; //устанавливаем канал 
+            numChNew ^= 1;
+            numChNew &= 0b1;
+            CPSCON1 = setCh[numChNew]; //устанавливаем канал 
         }
     }
 }
