@@ -10,7 +10,9 @@
 #include <proc\pic16f1828.h>
 #include "fdataSB.h"
 
-#define Repeat
+#define modeWork
+//#define modeRepeat
+//#define modeSW
 
 #define setbit(var, bit) ((var) |= (1 << (bit)))
 #define clrbit(var, bit) ((var) &= ~(1 << (bit)))
@@ -32,9 +34,9 @@ byte checkSum(byte size) {
     return sum;
 }
 //------------------------------------------------------------------
+//крутим двигатель
 byte moveMotor() {
-    byte Error = 0;
-    //крутим двигатель
+    byte Error = 0;   
     nHalfTurn = 0;
     
     //настраиваем канал АЦП
@@ -54,24 +56,19 @@ byte moveMotor() {
     }else{
         setbit(PORTC, bIN2);
         clrbit(PORTC, bIN1);
-    }
-    swMove = ON; //включаем драйвер и оптческий датчик
-    
-    flag.b.motorMove = 1; //статус мотор запущен
-    stat = stDevTurn; //статус прямой ход
-    
+    }    
+    stat = stDevTurn; //статус прямой ход    
     numHighCurrent = 0;
     numLowBatt = 0;
-    intervalTimeADC = 0xFF;//0xD0;
-    
+    intervalTimeADC = 0xFF;//0xD0;   
     nWait = 7;
-    TMR2IE = 1;
-    
-    IOCAF5 = 0;        
-
+    TMR2IE = 1;   
+    IOCAF5 = 0;
+    flag.b.motorMove = 1; //статус мотор запущен
+    swMove = ON; //включаем драйвер и оптческий датчик
     while (1) {
         if (!flag.b.motorMove) {//анализируем когда моторо остановлен
-            while(numByteRX);
+ //вроде вообще не надо           while(numByteRX);
             while(TXIE);
             GIE = 0;
             if (stat == stRevers) {//остановка при обратном ходе
@@ -151,9 +148,10 @@ byte moveMotor() {
                 }
             }
             GIE = 1;
+            
         }
         //где-то выключается, приходится дублировать
-        //swMove = ON; //включаем драйвер и оптческий датчик
+        //swMove = ON; //включаем драйвер и оптческий датчик    
     }
     GIE = 1;
 
@@ -178,10 +176,7 @@ void Initial(void) {
     SCS1 = 1;
     SPLLEN = 1;
 
-    IRCF3 = 1;
-    IRCF2 = 1;
-    IRCF1 = 0;
-    IRCF0 = 1; //4 MHz    
+    IRCF3 = 1;IRCF2 = 1;IRCF1 = 0;IRCF0 = 1; //4 MHz    
         
     LED_OPEN_DIR = OUTPUT;
     LED_CLOSE_DIR = OUTPUT;
@@ -191,20 +186,25 @@ void Initial(void) {
     ANSELAbits.ANSA0 = 0;   
     ANSELAbits.ANSA1 = 0;
     
-    
     TRISA1 = OUTPUT;
     
-    #ifdef Repeat
+    #ifdef modeRepeat
     TRISA0 = INPUT;
-    IOCAN0 = 1; //разрешаем прерыание по каналу RB5, перепад из 1 в 0
+    IOCAN0 = 1; //разрешаем прерыание по каналу RA0, перепад из 1 в 0
     #else
     TRISA0 = OUTPUT;
     IOCBN5 = 1; //разрешаем прерыание по каналу RB5, перепад из 1 в 0 
     #endif
- 
+
+    #ifdef modeSW
+    TRISA0 = INPUT;
+    TRISA1 = INPUT;
+    IOCAN0 = 1; //разрешаем прерыание по каналу RA0, перепад из 1 в 0
+    IOCAN1 = 1; //разрешаем прерыание по каналу RA0, перепад из 1 в 0
+    #endif
+
     LATCbits.LATC5 = 0;
     IN1_DIR = OUTPUT;
-
     LATCbits.LATC4 = 0;
     IN2_DIR = OUTPUT;
 
@@ -214,16 +214,20 @@ void Initial(void) {
     ANSELCbits.ANSC7 = 0;
     sound_DIR = OUTPUT;
     sound = OFF;
+    ANSELBbits.ANSB4 = 0;
+    LATBbits.LATB4 = 0;
     onBAT_DIR = OUTPUT;
     onBAT = OFF;
 
     sensOpto_DIR = INPUT;
     IOCAN5 = 1; //разрешаем прерыание по каналу RA5, перепад из 1 в 0
     INLVLA5 = 0; //TTL   триггер шмитта    
-    
     IOCIE = 1;
 
-    swConf_DIR = INPUT;
+    //swConf_DIR = INPUT;
+    swConf_DIR = OUTPUT;    
+    LATBbits.LATB6 = 0;
+    
     OPTION_REGbits.nWPUEN = 0; //разрешаем работу подтягивающих резисторов
 
     ANSELAbits.ANSA2 = 0;
@@ -312,55 +316,40 @@ void Initial(void) {
 //------------------------------------------------------------------
 //функция обработки прерываний 
 __interrupt(high_priority) void Inter(void) {
-    unsigned int wTemp;    
-    byte *p;           
+    unsigned int wTemp;                  
     byte bTemp;
    
     SWDTEN = 0;
+   
     //для двух кнопок    
-    if (ADIE && ADIF) {//опрос АЦП
-        p = (byte *)&wTemp;
-        //wValADC.b[1] = ADRESH;
-        //wValADC.b[0] = ADRESL;
-        *p++ = ADRESL;
-        *p = ADRESH;
-  //      wTemp = (word)(ADRESH << 8) + ADRESL;
-        if(detect.b.checkBattery){
-            valuePowerADC = wTemp;//wValADC.num;
-            if(valuePowerADC == 0)
-                valuePowerADC = 1;
-        }else{//анализируем сигнал с датчика тока
-            //if (wValADC.num > CONSTPOROG) {//держим в крайнем положении в течении заданного интервала
-            //вариант фильтра, фиксируем количество событий превышений сигнала с датчика тока,
-            //увеличение с коэффициентом 7, уменьшение с коэффициентом 1
-            if (wTemp > CONSTPOROG) {                                     
-                numHighCurrent += 7;
-                intervalTimeADC = 0xFF;
+    if (ADIE && ADIF) {//опрос АЦП        
+        wADC.b[0] = ADRESL;
+        wADC.b[1] = ADRESH;  
+        if(detect.b.checkBattery){            
+            if(wADC.w == 0)
+                wADC.w = 1;
+        }else
+        {//анализируем сигнал с датчика тока                                                           
+            if (wADC.w > CONSTPOROG) {
+                numHighCurrent += 4;//вариант фильтра,увеличение с коэффициентом 4, уменьшение с коэффициентом 1
+                intervalTimeADC = 0xFF;                
             } else {                
                 if (numHighCurrent)
                     numHighCurrent--;
             }
             
-            if ((wTemp > 46)){// && (wTemp < 55)) {                                     
-                numLowBatt += 1;RA1 = 0;                
-            } else {                
-                if (numLowBatt)
-                    numLowBatt--;
-                RA1 = 0;
-            }
-            
-            if ((numHighCurrent >= CONSTBIG) || (numLowBatt == 500)) {//количество превышений досигла максимума             
+            numLowBatt++;
+            if ((numHighCurrent >= CONSTBIG) || (numLowBatt == 6000)) {//количество превышений досигла максимума                
                 flag.b.motorMove = 0;
                 flag.b.currBig = 1;
                 numHighCurrent = 0;
                 numLowBatt = 0;
             }
         }        
-        ADIF = 0;
+        ADIF = 0;        
     }
 
-    if (TMR2IE && TMR2IF) {
-       
+    if (TMR2IE && TMR2IF) {       
         if (nWait) {
             nWait--;
         }else{//по завершению временной паузы разрешаем опрос АЦП
@@ -398,24 +387,39 @@ __interrupt(high_priority) void Inter(void) {
     if(IOCIE){                
         //прерывание по оптическому каналу
         if(IOCAF5) {
+            numLowBatt = 0;
             if (!nWait) {
                 nHalfTurn++;
             
-                if (  ((nHalfTurn == 1) && (stat == stRevers)) || //останавливаем мотор при реверсе на репере
+                if (  ((nHalfTurn == 1) && (stat == stRevers)) ||  
+                        //останавливаем мотор при реверсе на репере
                     //         ((nHalfTurn >  Turn) && flag.b.direct  ) ||//направление открыть
                     //          ((nHalfTurn == Turn) && (!flag.b.direct)) //направление закрыть
-                    (nHalfTurn > Turn)
+                        (nHalfTurn > Turn) 
                     ) {
                     flag.b.motorMove = 0;
                 }
                 TMR2 = 0;
                 nWait = 5;
                 TMR2IE = 1;
-            }
-            
+            }            
             IOCAF5 = 0;            
         }
-        #ifdef Repeat
+        
+        #ifdef modeSW
+        if(IOCAF0){
+           flag.b.swOn = 1;
+           flag.b.direct = 0; //0 - закрыть замок
+           IOCAF0 = 0;
+        }        
+        if(IOCAF1){
+           flag.b.swOn = 1;
+           flag.b.direct = 1; //1 - открыть замок
+           IOCAF1 = 0;
+        }        
+        #endif                   
+        
+        #ifdef modeRepeat
         if(IOCAF0)
         #else
         if(IOCBF5)
@@ -438,33 +442,42 @@ __interrupt(high_priority) void Inter(void) {
                 bTemp >>= 1;
                 NOP();NOP();
                 
-                #ifdef Repeat
+                #ifdef modeRepeat
                 if(RA0)
                 #else
                 if(RB5)
                 #endif
                 {
-                    bTemp |= 0x80;
-                    //RA1 = 1;
+                    bTemp |= 0x80;                    
                 }
                 else {
-                    bTemp |= 0x00;
-                    //RA1 = 0;
+                    bTemp |= 0x00;                    
                 }
                                                        
             }while(numBit--);
             
-            #ifdef Repeat
+            #ifdef modeRepeat
             IOCAF0 = 0;
             #else
             IOCBF5 = 0;
             #endif
             
             arrToRX[numByteRX++] = bTemp;
+            bTemp = PORTB;
         }                
         //только для чтения IOCIF, очищается автоматом, когда другие прерывания обнулены
     }
- 
+    
+    #ifdef modeSW    
+    if(IOCBF5){
+        if(sound)
+                clrbit(PORTB, bS);
+            else
+                setbit(PORTB, bS);
+        IOCBF5 = 0;
+    }
+    #endif   
+    
     if (RCIE && RCIF) {        
         if (RCSTAbits.OERR) {// || detect.b.readOk) {//ошибка переполнения или принятый пакет еще на анализе
             CREN = 0;
@@ -475,22 +488,20 @@ __interrupt(high_priority) void Inter(void) {
             detect.b.UART = 1;
         }
     }
-            
+   
     if(detect.b.UART){
         detect.b.UART = 0;        
         switch (numByteRX) {
             case 1: {
                 if (arrToRX[0] != 0x55) {//это не первый байт
                     numByteRX = 0;
-                } else{
-                    //RA1 = 1;
+                } else{                    
                     timeTactRead = 10; //максимальное время на прием всего пакета
                     detect.b.recData = 1;//идет прием данных
                 }
                 break;
             }
-            case 2: {
-                //RA1 = 0;
+            case 2: {                
                 if (arrToRX[1] != 0xAA)//это не второй байт
                     numByteRX = 0;
                 break;
@@ -555,8 +566,8 @@ __interrupt(high_priority) void Inter(void) {
                 //только когда передан последний байт
                 TXIE = 0;
         }
-    }    
-    //RA1 ^= 1;
+    } 
+    
     return;
 }
 //------------------------------------------------------------------
@@ -604,11 +615,7 @@ void main(void) {
     unsigned char iSampl, idUser, iLevel;
     
     unsigned int wTemp;
-    union{
-        unsigned int w;    
-        byte b[2];
-    }wADC; 
-    
+     
     //источник команды
     byte commandForMotor;
     #define cNoComm        0x00
@@ -626,7 +633,7 @@ void main(void) {
     arrToTX[4] = 0x00; //старший байт параметра "количество байт"
     
     Turn = 7;
-    CPSON = 1;
+//пока выключим    CPSON = 1;
     LED_OPEN = 1;
     LED_CLOSE = 0;
     
@@ -634,14 +641,18 @@ void main(void) {
     flag.all = 0;
     numByteRX = 0;
     detect.all = 0;
-    cicleGo = 10;
+    cicleGo = 10;//250;//
+    //swMove = ON;
+    //sound = ON;
     do{
         wTemp = 40000;
         do{NOP();}while(wTemp--);
         LED_OPEN ^= 1;
         LED_CLOSE ^= 1;
+        
     }while(cicleGo--);
-    
+    //sound = OFF;
+    //swMove = OFF;
     LED_OPEN = 0;
     LED_CLOSE = 0;
     
@@ -650,10 +661,9 @@ void main(void) {
     TMR2IE = 0;
     detect.b.checkBattery = 1;
     
-    while (1) {    
-  //      RA1 ^= 1;
-        //CPSON = 1;//включаем сенсорные кнопки
-        #ifdef Repeat
+    while (1) {        
+        //пока выключим CPSON = 1;//включаем сенсорные кнопки
+        #ifdef modeRepeat
     
         #else            
         if(sessionNum == 1){//рвем связь
@@ -665,11 +675,10 @@ void main(void) {
             arrToTX[6] = 0xE6;                                                                
             allByteTX = 7;numByteTX = 0;
             TXIE = 1; //разрешаем передачу
-        }    I
+        }    
         #endif                                                                        
                                 
-        if (detect.b.readOk) {//если есть принятый пакет, то анализируем его  
-            RA1 ^=  1;
+        if (detect.b.readOk) {//если есть принятый пакет, то анализируем его              
             //не плохо бы проверить контрольную сумму у принятого пакета            
             while (TXIE); //ждем когда завершится предыдущая передача
             arrToTX[4] = 0x00;
@@ -891,16 +900,13 @@ void main(void) {
 
         if (flag.b.swOn) {//пришла команта крутить двигатель
             CPSON = 0; //вЫключаем сенсорные кнопки
-              
-            #ifdef Repeat
-    
-            #else            
-            IOCBN5 = 0;
-            CREN = 1;
-            RCIF = 0;
-            RCIE = 1;
+                         
+            #ifdef modeWork
+                    IOCBN5 = 0;
+                    CREN = 1;
+                    RCIF = 0;
+                    RCIE = 1;                
             #endif
-
             while (TXIE);
             moveMotor();
             
@@ -914,7 +920,7 @@ void main(void) {
             CREN = 0;
             RCIE = 0;
             
-            #ifdef Repeat
+            #ifdef modeRepeat
     
             #else            
             IOCBN5 = 1;
@@ -1030,14 +1036,14 @@ void main(void) {
             //подключаем делитель
             onBAT = ON;
             nWait = 4;
-            valuePowerADC = 0;
+            wADC.w = 0;//valuePowerADC = 0;
             TMR2IE = 1;
             
-            while(!valuePowerADC);
+            while(!wADC.w);//while(!valuePowerADC);
             
-            valuePowerADC = 0;
-            while(!valuePowerADC);//измеряем два раза на всякий случай
-            wADC.w = valuePowerADC;
+            wADC.w = 0;//valuePowerADC = 0;
+            while(!wADC.w);//while(!valuePowerADC);//измеряем два раза на всякий случай
+            //wADC.w = valuePowerADC;
             
             if(wADC.w > CONSTHEIGHT){
                 bTemp = lHeight;
@@ -1073,8 +1079,9 @@ void main(void) {
                 numByteTX = 0;
                 TXIE = 1;
             }
-                       
-            CPSON = 1;//включаем сенсорные кнопки
+            #ifdef modeWork           
+                //пока выключим CPSON = 1;//включаем сенсорные кнопки
+            #endif
             detect.b.checkBattery = 0;
             nWait = 10;
             detect.b.sensSWzero = 1;
@@ -1213,8 +1220,7 @@ void main(void) {
             //сравниваем уровень и мгновенное значение
                 if(wTemp > sensSW[numCh].sampl){
                     if ((wTemp - sensSW[numCh].sampl) > CONSTSIGNALON) {                                            
-                        check_interval[numCh] = CONSTCHECKINTERVAL; 
- //                if(numCh) RA1 = 1; else RA0 = 1;
+                        check_interval[numCh] = CONSTCHECKINTERVAL;  
                     }   
                 }
             } else {
@@ -1260,9 +1266,11 @@ void main(void) {
 //только UART        IOCBN5 = 1;  
         TMR1L = 0;
         TMR1H = 0;
-        TMR1ON = 1;
+#ifdef modeWork        
+        TMR1ON = 1;        
         SWDTEN = 1;
         SLEEP();
+#endif
         SWDTEN = 0;
         TMR1ON = 0;
         if(!STATUSbits.nTO){

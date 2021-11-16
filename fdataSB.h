@@ -20,6 +20,8 @@
 #define IN2       RC4
 #define bIN2       4
 #define bIN1       5
+#define bS         4
+#define bConf      6
 
 #define swMove_DIR  TRISC7//pin 9
 #define swMove      RC7
@@ -34,7 +36,8 @@
 #define onBAT_DIR  TRISC6//pin 8
 #define onBAT      RC6
 
-#define CONSTPOROG 69//для датчика 0,22 Ом, получаем при токе 0,5 А напряжение 0,11 В,
+#define CONSTPOROG 65
+//#define CONSTPOROG 69//для датчика 0,22 Ом, получаем при токе 0,5 А напряжение 0,11 В,
 //тогда для АЦП 10 разрядов и опорном напряжении 2,048 В это код 0,11/2,048*(1024 -1) = 55
 //тогда для АЦП 10 разрядов и напряжении питания 3 В это код 0,11/3*(1024-1) = 55
 
@@ -72,9 +75,9 @@ byte cicleGo;
 byte Turn;
 byte Status;
 int numHighCurrent;
-int numLowBatt;
+volatile int numLowBatt;
 
-#define CONSTBIG 20
+#define CONSTBIG 30//20
 
 byte numByteRX;//номер принимаемого байта
 byte allByteRX;//количество байт, которое должно быть в принятом пакете
@@ -93,9 +96,12 @@ volatile byte sessionNum;//количество сигналов ПУЛЬС до окончания текущей сессии
 #define CONSTLOW    352//3,2 В  0x0100+  24d<<2 исходное, после делителя 1 В при питании 2,048 В и 10 разрядном АЦП
 //3.1 21
 //3.0 19
-volatile unsigned int valuePowerADC;//значение кода АЦП при измерении заряда батареи
+volatile union{
+        unsigned int w;    
+        byte b[2];
+    }wADC;//значение кода АЦП
+//unsigned int valuePowerADC;//значение кода АЦП при измерении заряда батареи
 word timePower;//таймер проверки заряда аккумулятора
-volatile byte LD1, LD2;
 
 volatile union{
         unsigned int num;
@@ -128,5 +134,6 @@ volatile union{
         unsigned checkBattery : 1;//проверить заряд аккумулятора
         unsigned sensSWzero : 1;//обнулиь сенсорную клавиатуру   
         unsigned UART : 1;//считан байт по UART
+        unsigned : 1;//
     }b;
 }detect;
